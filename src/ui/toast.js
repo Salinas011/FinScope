@@ -12,7 +12,12 @@ export class Toast {
         this.container.id = 'toastRegion';
         this.container.className = 'toast-region';
         this.container.setAttribute('aria-live', 'polite');
+        this.container.setAttribute('role', 'status');
+        this.container.setAttribute('aria-atomic', 'true');
         document.body.appendChild(this.container);
+      } else {
+        if (!this.container.hasAttribute('role')) this.container.setAttribute('role', 'status');
+        if (!this.container.hasAttribute('aria-atomic')) this.container.setAttribute('aria-atomic', 'true');
       }
     }
   }
@@ -28,6 +33,8 @@ export class Toast {
 
     const node = document.createElement('div');
     node.className = `toast ${type === 'error' ? 'error' : type === 'info' ? 'info' : ''}`;
+    node.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    node.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
 
     const iconName = type === 'error' ? 'error' : type === 'info' ? 'info' : 'check';
     const escaped = String(message).replace(/[&<>"']/g, c => ({

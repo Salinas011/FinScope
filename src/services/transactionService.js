@@ -7,6 +7,7 @@ import { store } from '../core/store.js';
 import { categoryService } from './categoryService.js';
 import { accountService } from './accountService.js';
 import { currencyService } from './currencyService.js';
+import { firestoreService } from './firestoreService.js';
 
 class TransactionService {
   /**
@@ -259,6 +260,13 @@ class TransactionService {
       );
     }
 
+    // Garantía de Escritura Inmediata en Firestore si está online
+    try {
+      firestoreService.syncRecordImmediate('transactions', payload);
+    } catch (err) {
+      console.warn('[TransactionService] Sincronización inmediata diferida:', err);
+    }
+
     return { success: true, transaction: payload };
   }
 
@@ -279,6 +287,17 @@ class TransactionService {
     );
 
     store.setState({ transactions: updated }, 'transaction:deleted');
+
+    // Garantía de Escritura Inmediata en Firestore si está online
+    const deletedItem = updated.find(t => t.id === id);
+    if (deletedItem) {
+      try {
+        firestoreService.syncRecordImmediate('transactions', deletedItem);
+      } catch (err) {
+        console.warn('[TransactionService] Sincronización inmediata diferida:', err);
+      }
+    }
+
     return { success: true };
   }
 }

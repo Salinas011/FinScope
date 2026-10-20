@@ -24,7 +24,12 @@ class AuthService {
   loadStoredUser() {
     try {
       const data = localStorage.getItem(AUTH_STORAGE_KEY);
-      return data ? JSON.parse(data) : null;
+      if (!data) return null;
+      const user = JSON.parse(data);
+      if (user && !user.uid && user.id) {
+        user.uid = user.id;
+      }
+      return user;
     } catch (e) {
       console.error('Error al recuperar sesión local:', e);
       return null;
@@ -127,6 +132,7 @@ class AuthService {
 
     this.currentUser = {
       id: payload.sub,
+      uid: payload.sub,
       name: payload.name,
       email: payload.email,
       picture: payload.picture,

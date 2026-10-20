@@ -105,6 +105,7 @@ export class TransactionsView {
 
       const pocket = t.pocketId ? (acc.pockets || []).find(p => p.id === t.pocketId) : null;
       const pocketLabel = pocket ? ` · [Alcancía: ${this.escape(pocket.name)}]` : '';
+      const iconBg = `${cat.color}1c`;
 
       return `
         <tr>
@@ -130,15 +131,15 @@ export class TransactionsView {
           </td>
           <td>${this.escape(t.date || '—')}</td>
           <td class="note-cell">${this.escape(t.note || '—')}</td>
-          <td class="amount-cell ${amountColor}">
+          <td class="amount-cell tabular-nums ${amountColor}">
             ${sign} ${currencyService.format(t.amount)}
           </td>
           <td>
             <div class="row-actions">
-              <button class="row-action" title="Editar movimiento" aria-label="Editar" data-edit-transaction="${t.id}">
+              <button class="row-action" title="Editar movimiento" aria-label="Editar movimiento ${this.escape(t.title)}" data-edit-transaction="${t.id}">
                 <span class="material-symbols-rounded">edit</span>
               </button>
-              <button class="row-action delete" title="Eliminar movimiento" aria-label="Eliminar" data-delete-transaction="${t.id}">
+              <button class="row-action delete" title="Eliminar movimiento" aria-label="Eliminar movimiento ${this.escape(t.title)}" data-delete-transaction="${t.id}">
                 <span class="material-symbols-rounded">delete</span>
               </button>
             </div>

@@ -69,17 +69,17 @@ export class AccountsView {
                       </span>
                       <div>
                         <strong class="pocket-name">${this.escape(p.name)}</strong>
-                        <div class="pocket-balance">${currencyService.format(p.currentBalance)}</div>
+                        <div class="pocket-balance tabular-nums">${currencyService.format(p.currentBalance)}</div>
                       </div>
                     </div>
                     <div class="pocket-actions">
-                      <button class="pocket-btn" title="Meter dinero a esta alcancía" data-pocket-deposit="${a.id}:${p.id}:${this.escape(p.name)}">
+                      <button class="pocket-btn" title="Meter dinero a esta alcancía" aria-label="Meter dinero en alcancía ${this.escape(p.name)}" data-pocket-deposit="${a.id}:${p.id}:${this.escape(p.name)}">
                         <span class="material-symbols-rounded">add</span> Meter
                       </button>
-                      <button class="pocket-btn" title="Sacar dinero de esta alcancía" data-pocket-withdraw="${a.id}:${p.id}:${this.escape(p.name)}">
+                      <button class="pocket-btn" title="Sacar dinero de esta alcancía" aria-label="Sacar dinero de alcancía ${this.escape(p.name)}" data-pocket-withdraw="${a.id}:${p.id}:${this.escape(p.name)}">
                         <span class="material-symbols-rounded">remove</span> Sacar
                       </button>
-                      <button class="pocket-btn danger-icon" title="Eliminar alcancía" data-delete-pocket="${a.id}:${p.id}">
+                      <button class="pocket-btn danger-icon" title="Eliminar alcancía" aria-label="Eliminar alcancía ${this.escape(p.name)}" data-delete-pocket="${a.id}:${p.id}">
                         <span class="material-symbols-rounded">delete</span>
                       </button>
                     </div>
@@ -112,10 +112,10 @@ export class AccountsView {
               <small>${accountTypeLabels[a.type] || 'Cuenta'}</small>
             </div>
             <div class="account-card-actions">
-              <button title="Editar cuenta" aria-label="Editar" data-edit-account="${a.id}">
+              <button title="Editar cuenta" aria-label="Editar cuenta ${this.escape(a.name)}" data-edit-account="${a.id}">
                 <span class="material-symbols-rounded">edit</span>
               </button>
-              <button title="Eliminar cuenta" aria-label="Eliminar" data-delete-account="${a.id}">
+              <button title="Eliminar cuenta" aria-label="Eliminar cuenta ${this.escape(a.name)}" data-delete-account="${a.id}">
                 <span class="material-symbols-rounded">delete</span>
               </button>
             </div>
@@ -124,7 +124,7 @@ export class AccountsView {
           <div class="account-card-body">
             <div class="account-balance-group">
               <div class="account-balance-label">Saldo total de la cuenta</div>
-              <div class="account-balance ${isNegative ? 'negative-balance' : ''}">
+              <div class="account-balance tabular-nums ${isNegative ? 'negative-balance' : ''}">
                 ${currencyService.format(a.currentBalance)}
               </div>
             </div>
@@ -132,11 +132,11 @@ export class AccountsView {
             <div class="account-sub-balances">
               <div class="sub-balance-item">
                 <span class="sub-balance-label">Disponible:</span>
-                <strong class="sub-balance-value">${currencyService.format(a.availableBalance)}</strong>
+                <strong class="sub-balance-value tabular-nums">${currencyService.format(a.availableBalance)}</strong>
               </div>
               <div class="sub-balance-item">
                 <span class="sub-balance-label">En alcancías:</span>
-                <strong class="sub-balance-value">${currencyService.format(totalInPockets)}</strong>
+                <strong class="sub-balance-value tabular-nums">${currencyService.format(totalInPockets)}</strong>
               </div>
             </div>
           </div>

@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:verify": "node scripts/verify-v3.js"
+    "test:verify": "node scripts/verify-v3.js",
+    "test:cache-wipe": "node scripts/test-cache-wipe.js"
   },
   "keywords": [
     "finanzas",

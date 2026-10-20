@@ -90,15 +90,21 @@ class FirestoreService {
    * @param {Object} user
    */
   async attachUser(user) {
-    if (!user?.id) {
+    if (!user) {
       this.detachUser();
       return;
     }
 
-    if (this.currentUserId === user.id) return;
+    const uid = user.id || user.uid || user.email;
+    if (!uid) {
+      this.detachUser();
+      return;
+    }
+
+    if (this.currentUserId === uid && this.unsubscribers.length > 0) return;
     this.detachUser();
 
-    this.currentUserId = user.id;
+    this.currentUserId = uid;
     this.setSyncStatus('syncing');
 
     if (!db) {
@@ -133,8 +139,8 @@ class FirestoreService {
         }, { merge: true });
       }
 
-      // 2. Ejecutar reconciliación inicial LWW de todas las subcolecciones
-      await this.reconcileInitialData(user);
+      // 2. Ejecutar rehidratación completa inicial LWW (Cloud Pull)
+      await this.pullAllUserData(this.currentUserId);
 
       // 3. Suscribirse en tiempo real a cada subcolección granular
       this.listenToSubcollections();
@@ -143,6 +149,254 @@ class FirestoreService {
     } catch (error) {
       console.error('[Firestore] Error conectando con Firestore:', error);
       this.setSyncStatus('error');
+    }
+  }
+
+  /**
+   * Rehidratación completa desde la nube (Initial Cloud Pull).
+   * Realiza un fetch sobre todas las subcolecciones del usuario:
+   * accounts, categories, transactions, budgets y recurring bajo la ruta users/{userId}/{collection}.
+   * Excluye registros que tengan deletedAt !== null o aplica resolución Last-Write-Wins (LWW).
+   * Si la consulta remota contiene registros y el estado local está vacío o desactualizado:
+   * 1. Guarda atómicamente todos los registros remotos en sus respectivos Object Stores de IndexedDB.
+   * 2. Actualiza el estado reactivo en store.js mediante replaceState().
+   * 3. Emite un evento en el eventBus ('store:synced' y 'state:changed') para forzar re-renderizado automático.
+   * @param {string|Object} userId UID o email del usuario
+   * @param {Object} [mockData=null] Datos simulados para testing automatizado
+   * @returns {Promise<{success: boolean, pulledCount: number, state: Object}>}
+   */
+  async pullAllUserData(userId, mockData = null) {
+    const uid = typeof userId === 'object' && userId !== null
+      ? (userId.uid || userId.id || userId.email)
+      : (userId || this.currentUserId);
+
+    if (!uid) {
+      console.warn('[Firestore] pullAllUserData: userId no especificado.');
+      return { success: false, reason: 'missing_user_id', pulledCount: 0 };
+    }
+
+    this.currentUserId = uid;
+    this.setSyncStatus('syncing');
+
+    let remoteCollections = {};
+    let remoteMeta = {};
+
+    if (mockData) {
+      remoteCollections = {
+        accounts: mockData.accounts || [],
+        categories: mockData.categories || [],
+        transactions: mockData.transactions || [],
+        budgets: mockData.budgets || [],
+        recurring: mockData.recurring || []
+      };
+      remoteMeta = mockData.meta || {};
+    } else {
+      if (!db) {
+        console.warn('[Firestore] Firebase no disponible para pullAllUserData. Operando localmente.');
+        this.setSyncStatus('disconnected');
+        return { success: false, reason: 'no_db', pulledCount: 0 };
+      }
+
+      try {
+        // 1. Obtener metadatos raíz (currency, theme, settings)
+        try {
+          const userDocRef = doc(db, 'users', uid);
+          const userDocSnap = await getDoc(userDocRef);
+          if (userDocSnap.exists()) {
+            remoteMeta = userDocSnap.data() || {};
+          }
+        } catch (metaErr) {
+          console.warn('[Firestore] No se pudieron leer metadatos de usuario:', metaErr);
+        }
+
+        // 2. Fetch granular sobre cada subcolección
+        for (const collName of SYNCED_COLLECTIONS) {
+          const collRef = collection(db, 'users', uid, collName);
+          const snapshot = await getDocs(collRef);
+          const docs = [];
+          snapshot.forEach(docSnap => {
+            docs.push({ id: docSnap.id, ...docSnap.data() });
+          });
+          remoteCollections[collName] = docs;
+        }
+      } catch (err) {
+        console.error('[Firestore] Error en pullAllUserData durante fetch remoto:', err);
+        this.setSyncStatus('error');
+        return { success: false, error: err.message, pulledCount: 0 };
+      }
+    }
+
+    const currentState = store.getState();
+    const isLocalEmpty = (currentState.transactions || []).length === 0;
+
+    let totalPulled = 0;
+    const mergedData = {};
+
+    for (const collName of SYNCED_COLLECTIONS) {
+      const remoteItems = remoteCollections[collName] || [];
+      const localItems = currentState[collName] || [];
+
+      totalPulled += remoteItems.length;
+
+      // Si el almacenamiento local estaba en cero (ej. caché borrada físicamente)
+      if (isLocalEmpty) {
+        if (collName === 'accounts') {
+          // Si la nube tiene cuentas del usuario, sustituyen los defaults en blanco
+          if (remoteItems.length > 0) {
+            mergedData.accounts = remoteItems
+              .filter(item => !item.deletedAt)
+              .map(item => ({ ...item, syncStatus: 'synced' }));
+          } else {
+            mergedData.accounts = localItems;
+          }
+        } else if (collName === 'categories') {
+          // Si la nube tiene categorías, sustituyen o conservan DEFAULT_CATEGORIES
+          if (remoteItems.length > 0) {
+            mergedData.categories = remoteItems
+              .filter(item => !item.deletedAt)
+              .map(item => ({ ...item, syncStatus: 'synced' }));
+          } else {
+            mergedData.categories = localItems;
+          }
+        } else {
+          // Para transactions, budgets, recurring
+          mergedData[collName] = remoteItems
+            .filter(item => !item.deletedAt)
+            .map(item => ({ ...item, syncStatus: 'synced' }));
+        }
+      } else {
+        // Resolución Last-Write-Wins (LWW) registro a registro
+        const localMap = new Map(localItems.map(item => [item.id, item]));
+        const remoteMap = new Map(remoteItems.map(item => [item.id, item]));
+        const mergedList = [];
+
+        // Evaluar registros remotos contra locales
+        for (const [id, remoteItem] of remoteMap.entries()) {
+          const localItem = localMap.get(id);
+
+          if (!localItem) {
+            // No existe localmente: incorporar si no está eliminado
+            if (!remoteItem.deletedAt) {
+              mergedList.push({ ...remoteItem, syncStatus: 'synced' });
+            }
+          } else {
+            // Existe en ambos: resolver conflicto con LWW por updatedAt
+            const remoteTime = Number(remoteItem.updatedAt) || 0;
+            const localTime = Number(localItem.updatedAt) || 0;
+
+            if (remoteTime >= localTime) {
+              if (!remoteItem.deletedAt) {
+                mergedList.push({ ...remoteItem, syncStatus: 'synced' });
+              }
+            } else {
+              if (!localItem.deletedAt) {
+                mergedList.push(localItem);
+              }
+            }
+          }
+        }
+
+        // Evaluar registros locales que no están en remoto
+        for (const [id, localItem] of localMap.entries()) {
+          if (!remoteMap.has(id)) {
+            if (!localItem.deletedAt) {
+              mergedList.push(localItem);
+            }
+          }
+        }
+
+        mergedData[collName] = mergedList;
+      }
+    }
+
+    // 4. Construir estado unificado consolidado
+    const nextState = {
+      ...currentState,
+      currency: remoteMeta.currency || currentState.currency || 'COP',
+      theme: remoteMeta.theme || currentState.theme || 'light',
+      settings: { ...currentState.settings, ...(remoteMeta.settings || {}) },
+      accounts: (mergedData.accounts && mergedData.accounts.length > 0)
+        ? mergedData.accounts
+        : currentState.accounts,
+      categories: (mergedData.categories && mergedData.categories.length > 0)
+        ? mergedData.categories
+        : currentState.categories,
+      transactions: mergedData.transactions || [],
+      budgets: mergedData.budgets || [],
+      recurring: mergedData.recurring || [],
+      version: 3
+    };
+
+    // 5. Guardado atómico en IndexedDB y actualización del store reactivo
+    this.isApplyingRemoteChange = true;
+    await store.replaceState(nextState);
+    this.isApplyingRemoteChange = false;
+
+    // 6. Notificar a toda la aplicación para re-renderizado automático
+    eventBus.emit('store:synced', {
+      source: 'firestore:pullAllUserData',
+      userId: uid,
+      pulledCount: totalPulled,
+      state: nextState
+    });
+
+    eventBus.emit('state:changed', {
+      state: nextState,
+      actionTag: 'firestore:pullAllUserData'
+    });
+
+    this.setSyncStatus('connected');
+    console.log(`[Firestore] pullAllUserData completado. ${totalPulled} registros remotos procesados.`);
+
+    return {
+      success: true,
+      pulledCount: totalPulled,
+      state: nextState
+    };
+  }
+
+  /**
+   * Garantía de Escritura Inmediata:
+   * Sube inmediatamente un registro a Cloud Firestore si el usuario está autenticado y online.
+   * Marca syncStatus: 'synced' al confirmarse la persistencia remota.
+   * Si está offline o ocurre un error, el registro conserva syncStatus: 'pending' para la cola de reintento.
+   * @param {string} collName 'accounts' | 'transactions' | 'categories' | 'budgets' | 'recurring'
+   * @param {Object} item Entidad a sincronizar
+   * @returns {Promise<Object>}
+   */
+  async syncRecordImmediate(collName, item) {
+    if (!item || !item.id) return item;
+
+    const uid = this.currentUserId;
+    if (!uid || !db) return item;
+
+    const isOnline = typeof navigator === 'undefined' || navigator.onLine !== false;
+    if (!isOnline) return item;
+
+    try {
+      this.setSyncStatus('syncing');
+      const itemRef = doc(db, 'users', uid, collName, item.id);
+      const { syncStatus, ...cleanItem } = item;
+      await setDoc(itemRef, cleanItem, { merge: true });
+
+      const syncedItem = { ...item, syncStatus: 'synced' };
+
+      // Persistir en IndexedDB
+      await StorageService.saveEntity(collName, syncedItem);
+
+      // Actualizar silenciosamente en el store en memoria
+      const currentList = store[collName] || [];
+      const updatedList = currentList.map(it => (it.id === item.id ? syncedItem : it));
+      this.isApplyingRemoteChange = true;
+      store.setState({ [collName]: updatedList }, `firestore:synced:${collName}`);
+      this.isApplyingRemoteChange = false;
+
+      this.setSyncStatus('connected');
+      return syncedItem;
+    } catch (err) {
+      console.warn(`[Firestore] Error en sincronización inmediata de ${collName}/${item.id}:`, err);
+      this.setSyncStatus('connected');
+      return item;
     }
   }
 

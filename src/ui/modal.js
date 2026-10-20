@@ -3,12 +3,36 @@
  */
 export class Modal {
   static currentConfirmAction = null;
+  static previousActiveElement = null;
 
   static init() {
-    // Cerrar al pulsar Escape
+    // Cerrar al pulsar Escape y atrapar foco con Tab
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape') {
         this.closeAll();
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        const activeModal = document.querySelector('.modal-backdrop:not(.hidden), .confirm-backdrop:not(.hidden)');
+        if (!activeModal) return;
+
+        const focusables = Array.from(
+          activeModal.querySelectorAll('button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')
+        ).filter(el => el.offsetParent !== null);
+
+        if (focusables.length === 0) return;
+
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
       }
     });
 
@@ -51,14 +75,17 @@ export class Modal {
     const el = document.querySelector(selector);
     if (!el) return;
 
+    this.previousActiveElement = document.activeElement;
+
     el.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
     document.body.classList.add('modal-open');
+    document.documentElement.classList.add('modal-open');
 
     // Autofocus en el primer campo interactivo
     const firstInput = el.querySelector('input:not([type=hidden]), select, textarea, button:not(.close-modal)');
     if (firstInput) {
-      setTimeout(() => firstInput.focus(), 60);
+      setTimeout(() => firstInput.focus(), 80);
     }
   }
 
@@ -71,7 +98,15 @@ export class Modal {
     });
     document.body.style.overflow = '';
     document.body.classList.remove('modal-open');
+    document.documentElement.classList.remove('modal-open');
     this.currentConfirmAction = null;
+
+    if (this.previousActiveElement && typeof this.previousActiveElement.focus === 'function') {
+      try {
+        this.previousActiveElement.focus();
+      } catch (_) {}
+      this.previousActiveElement = null;
+    }
   }
 
   /**
@@ -90,6 +125,8 @@ export class Modal {
       return;
     }
 
+    this.previousActiveElement = document.activeElement;
+
     titleEl.textContent = title;
     msgEl.textContent = message;
     acceptBtn.textContent = confirmText;
@@ -99,5 +136,6 @@ export class Modal {
     modalEl.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
     document.body.classList.add('modal-open');
+    document.documentElement.classList.add('modal-open');
   }
 }

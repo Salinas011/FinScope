@@ -127,7 +127,7 @@ export class DashboardView {
             </span>
           </td>
           <td>${this.escape(t.date || '—')}</td>
-          <td class="amount-cell ${amountColor}">
+          <td class="amount-cell tabular-nums ${amountColor}">
             ${sign} ${currencyService.format(t.amount)}
           </td>
         </tr>

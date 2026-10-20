@@ -45,6 +45,24 @@ class App {
     // Hidratar almacén central de forma asíncrona desde IndexedDB
     await store.init();
 
+    // Rehidratación inmediata desde Cloud Firestore si hay sesión activa (Initial Cloud Pull)
+    const currentUser = authService.getUser();
+    if (currentUser) {
+      const isLocalEmpty = (store.transactions.length === 0);
+      if (isLocalEmpty) {
+        Toast.info('Recuperando tus finanzas desde Cloud Firestore...', 3500);
+      }
+      try {
+        const uid = currentUser.uid || currentUser.email || currentUser.id;
+        await firestoreService.pullAllUserData(uid);
+        if (isLocalEmpty && store.transactions.length > 0) {
+          Toast.success('¡Tus finanzas se han recuperado exitosamente!');
+        }
+      } catch (err) {
+        console.error('[Main] Error durante la rehidratación inicial desde Firestore:', err);
+      }
+    }
+
     // Sincronizar tema visual guardado
     document.body.classList.toggle('dark', store.theme === 'dark');
     const themeIcon = document.getElementById('themeIcon');
@@ -74,6 +92,12 @@ class App {
       this.renderActiveView();
     });
 
+    // Re-renderizado completo al recibir evento de rehidratación o sincronización en la nube
+    eventBus.on('store:synced', () => {
+      this.refreshSelects();
+      this.renderAll();
+    });
+
     // Escuchar alertas de almacenamiento
     eventBus.on('error:storage', err => {
       Toast.error(err);
@@ -84,8 +108,10 @@ class App {
       this.updateSyncUI(status);
     });
 
-    // Guardar cambios en Firestore cuando el usuario esté autenticado
-    eventBus.on('state:changed', () => {
+    // Guardar cambios en Firestore cuando el usuario esté autenticado (ignora pulls y sync directos)
+    eventBus.on('state:changed', (e) => {
+      if (firestoreService.isApplyingRemoteChange) return;
+      if (e?.actionTag?.startsWith('firestore:')) return;
       const user = authService.getUser();
       if (user) {
         firestoreService.saveCurrentStateDebounced(user);

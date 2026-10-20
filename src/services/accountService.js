@@ -6,6 +6,7 @@
  */
 import { store } from '../core/store.js';
 import { currencyService } from './currencyService.js';
+import { firestoreService } from './firestoreService.js';
 
 class AccountService {
   /**
@@ -220,6 +221,10 @@ class AccountService {
       );
 
       store.setState({ accounts: updated }, 'account:updated');
+      const updatedAcc = updated.find(a => a.id === id);
+      if (updatedAcc) {
+        try { firestoreService.syncRecordImmediate('accounts', updatedAcc); } catch (e) {}
+      }
       return { success: true };
     } else {
       const newAccount = {
@@ -237,6 +242,7 @@ class AccountService {
       };
 
       store.setState({ accounts: [...accounts, newAccount] }, 'account:created');
+      try { firestoreService.syncRecordImmediate('accounts', newAccount); } catch (e) {}
       return { success: true, account: newAccount };
     }
   }
@@ -269,6 +275,10 @@ class AccountService {
     );
 
     store.setState({ accounts: updated }, 'account:deleted');
+    const deletedAcc = updated.find(a => a.id === id);
+    if (deletedAcc) {
+      try { firestoreService.syncRecordImmediate('accounts', deletedAcc); } catch (e) {}
+    }
     return { success: true };
   }
 
@@ -319,6 +329,10 @@ class AccountService {
     });
 
     store.setState({ accounts: updatedAccounts }, 'pocket:created');
+    const accRecord = updatedAccounts.find(a => a.id === accountId);
+    if (accRecord) {
+      try { firestoreService.syncRecordImmediate('accounts', accRecord); } catch (e) {}
+    }
     return { success: true, pocket: newPocket };
   }
 
@@ -358,6 +372,10 @@ class AccountService {
     });
 
     store.setState({ accounts: updatedAccounts }, 'pocket:updated');
+    const accRecord = updatedAccounts.find(a => a.id === accountId);
+    if (accRecord) {
+      try { firestoreService.syncRecordImmediate('accounts', accRecord); } catch (e) {}
+    }
     return { success: true };
   }
 
@@ -382,8 +400,9 @@ class AccountService {
     let newTransactions = store.transactions || [];
 
     // Si la alcancía tiene saldo, retornarlo íntegro al disponible sin alterar el total
+    let returnTx = null;
     if (pocketBalance > 0) {
-      const returnTx = {
+      returnTx = {
         id: `tx-pkw-${now}-${Math.random().toString(36).slice(2, 7)}`,
         type: 'pocket_withdraw',
         title: `Liquidación de alcancía: ${pocket.name}`,
@@ -417,6 +436,14 @@ class AccountService {
       { accounts: updatedAccounts, transactions: newTransactions },
       'pocket:deleted'
     );
+
+    const accRecord = updatedAccounts.find(a => a.id === accountId);
+    if (accRecord) {
+      try { firestoreService.syncRecordImmediate('accounts', accRecord); } catch (e) {}
+    }
+    if (returnTx) {
+      try { firestoreService.syncRecordImmediate('transactions', returnTx); } catch (e) {}
+    }
 
     return {
       success: true,
@@ -485,6 +512,7 @@ class AccountService {
       isExternalFunding ? 'pocket:adjustment' : 'pocket:deposit'
     );
 
+    try { firestoreService.syncRecordImmediate('transactions', internalTx); } catch (e) {}
     return { success: true, transaction: internalTx };
   }
 
@@ -537,6 +565,7 @@ class AccountService {
       'pocket:withdraw'
     );
 
+    try { firestoreService.syncRecordImmediate('transactions', internalTx); } catch (e) {}
     return { success: true, transaction: internalTx };
   }
 
@@ -591,6 +620,7 @@ class AccountService {
       'transfer:completed'
     );
 
+    try { firestoreService.syncRecordImmediate('transactions', transferTx); } catch (e) {}
     return { success: true, transaction: transferTx };
   }
 }

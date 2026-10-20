@@ -55,17 +55,17 @@ export class RecurringView {
               <small>${this.escape(acc.name)} · ${freqLabels[r.frequency] || 'Mensual'}</small>
             </div>
             <div class="recurring-actions">
-              <button title="Editar" aria-label="Editar" data-edit-recurring="${r.id}">
+              <button title="Editar" aria-label="Editar suscripción ${this.escape(r.title)}" data-edit-recurring="${r.id}">
                 <span class="material-symbols-rounded">edit</span>
               </button>
-              <button title="Eliminar" aria-label="Eliminar" data-delete-recurring="${r.id}">
+              <button title="Eliminar" aria-label="Eliminar suscripción ${this.escape(r.title)}" data-delete-recurring="${r.id}">
                 <span class="material-symbols-rounded">delete</span>
               </button>
             </div>
           </div>
 
           <div class="recurring-body">
-            <div class="recurring-amount">${currencyService.format(r.amount)}</div>
+            <div class="recurring-amount tabular-nums">${currencyService.format(r.amount)}</div>
             <div class="recurring-due">
               <span>📅 Cobro: Día ${r.dueDay} de cada mes</span>
               <span class="badge ${r.active ? 'badge-active' : 'badge-paused'}">

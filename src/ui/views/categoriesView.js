@@ -52,17 +52,17 @@ export class CategoriesView {
               ${iconHtml(c.icon, 'category')}
             </span>
             <div class="category-card-actions">
-              <button title="Editar categoría" aria-label="Editar" data-edit-category="${c.id}">
+              <button title="Editar categoría" aria-label="Editar categoría ${this.escape(c.name)}" data-edit-category="${c.id}">
                 <span class="material-symbols-rounded">edit</span>
               </button>
-              <button title="Eliminar categoría" aria-label="Eliminar" data-delete-category="${c.id}">
+              <button title="Eliminar categoría" aria-label="Eliminar categoría ${this.escape(c.name)}" data-delete-category="${c.id}">
                 <span class="material-symbols-rounded">delete</span>
               </button>
             </div>
           </div>
           <h3 title="${this.escape(c.name)}">${this.escape(c.name)}</h3>
           <p>${txs.length} ${txs.length === 1 ? 'movimiento' : 'movimientos'}</p>
-          <div class="category-total">${currencyService.format(totalAmount)}</div>
+          <div class="category-total tabular-nums">${currencyService.format(totalAmount)}</div>
           <div class="category-total-label">Total histórico acumulado</div>
         </article>
       `;

@@ -41,10 +41,10 @@ export class BudgetsView {
         : `Disponible ${currencyService.format(b.remaining)}`;
 
       const statusBadge = b.isOver
-        ? '<span class="status-badge over">Sobre el límite</span>'
+        ? '<span class="status-badge over"><span class="material-symbols-rounded">error</span> Sobre el límite</span>'
         : b.isWarning
-        ? '<span class="status-badge warning">Cerca del límite (85%)</span>'
-        : '<span class="status-badge ok">En control</span>';
+        ? '<span class="status-badge warning"><span class="material-symbols-rounded">warning</span> Cerca del límite (85%)</span>'
+        : '<span class="status-badge ok"><span class="material-symbols-rounded">check_circle</span> En control</span>';
 
       return `
         <article class="budget-card">
@@ -57,16 +57,16 @@ export class BudgetsView {
               <small>Presupuesto mensual</small>
             </div>
             <div class="budget-card-actions">
-              <button title="Editar presupuesto" aria-label="Editar" data-edit-budget="${b.id}">
+              <button title="Editar presupuesto" aria-label="Editar presupuesto para ${this.escape(c.name)}" data-edit-budget="${b.id}">
                 <span class="material-symbols-rounded">edit</span>
               </button>
-              <button title="Eliminar presupuesto" aria-label="Eliminar" data-delete-budget="${b.id}">
+              <button title="Eliminar presupuesto" aria-label="Eliminar presupuesto para ${this.escape(c.name)}" data-delete-budget="${b.id}">
                 <span class="material-symbols-rounded">delete</span>
               </button>
             </div>
           </div>
 
-          <div class="budget-card-values">
+          <div class="budget-card-values tabular-nums">
             <div>
               <strong>${currencyService.format(b.spent)}</strong>
               <div><small>de ${currencyService.format(b.limit)}</small></div>
