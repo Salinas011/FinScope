@@ -15,35 +15,35 @@
 ```mermaid
 flowchart TD
     subgraph ClientInit ["1. Ciclo de Inicialización & Hidratación"]
-        A[index.html / main.js] --> B[Store.init()]
-        B --> C{¿Existe finscope_db_v3?}
-        C -- No --> D[StorageService.runMigrationPipeline()]
-        D -->|Detecta v1 o v2 en localStorage| E[Migración: v1 -> v2 -> v3]
-        E -->|Guarda esquema v3 en IndexedDB| F[(IndexedDB: finscope_db_v3)]
-        C -- Sí --> G[Carga Stores IndexedDB]
-        G --> H[Store Reactivo Central v3]
+        A["index.html / main.js"] --> B["Store.init()"]
+        B --> C{"¿Existe finscope_db_v3?"}
+        C -->|No| D["StorageService.runMigrationPipeline()"]
+        D -->|Detecta v1 o v2 en localStorage| E["Migración: v1 -> v2 -> v3"]
+        E -->|Guarda esquema v3 en IndexedDB| F[("IndexedDB: finscope_db_v3")]
+        C -->|Sí| G["Carga Stores IndexedDB"]
+        G --> H["Store Reactivo Central v3"]
         F --> H
-        H -->|store:hydrated| I[Render Inicial de UI y Vistas]
+        H -->|store:hydrated| I["Render Inicial de UI y Vistas"]
     end
 
     subgraph AccountingEngine ["2. Motor Contable & Alcancías (Safe Math)"]
-        J[Usuario / Acción Contable] --> K{Tipo de Movimiento}
+        J["Usuario / Acción Contable"] --> K{"Tipo de Movimiento"}
         K -->|pocket_deposit| L["Mover Saldo Disponible -> Alcancía (+A, -D, Total = Constante)"]
         K -->|pocket_withdraw| M["Mover Alcancía -> Saldo Disponible (-A, +D, Total = Constante)"]
         K -->|Gasto desde Alcancía| N["Deducir de Alcancía & Total (-A, -T, D = Constante)"]
         K -->|Eliminación de Alcancía| O["Auto-reintegro: pocket_withdraw automático de fondos remanentes"]
-        L & M & N & O --> P[Validación Invariante: Total = Disponible + Σ Alcancías]
+        L & M & N & O --> P["Validación Invariante: Total = Disponible + Σ Alcancías"]
         P -->|Actualiza Estado Inmutable| H
     end
 
     subgraph SyncEngine ["3. Sincronización Nube (Offline-First)"]
-        Q[Google Identity Services] -->|Auth JWT| R[authService.js]
-        R -->|attachUser| S[firestoreService.js]
+        Q["Google Identity Services"] -->|Auth JWT| R["authService.js"]
+        R -->|attachUser| S["firestoreService.js"]
         H -.->|EventBus: state:changed| S
-        S -->|Cola LWW updatedAt| T[Firestore: /users/UID/collection/docId]
-        T -.->|onSnapshot tiempo real| U{Comparar updatedAt (LWW)}
-        U -->|Remoto > Local| V[Actualizar Store & IndexedDB]
-        U -->|Local > Remoto| W[Subir a Firestore]
+        S -->|Cola LWW updatedAt| T["Firestore: /users/UID/collection/docId"]
+        T -.->|onSnapshot tiempo real| U{"Comparar updatedAt (LWW)"}
+        U -->|Remoto > Local| V["Actualizar Store & IndexedDB"]
+        U -->|Local > Remoto| W["Subir a Firestore"]
     end
 ```
 
