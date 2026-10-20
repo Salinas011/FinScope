@@ -1,18 +1,25 @@
 /**
  * src/services/firestoreService.js
- * Servicio de sincronización y persistencia en la nube con Firebase Cloud Firestore.
+ * Servicio de sincronización en la nube con Firebase Cloud Firestore v3.
+ * Implementa persistencia granular por subcolecciones, resolución de conflictos
+ * Last-Write-Wins (LWW) por registro y soporte Offline-First con cola de cambios pendientes.
  */
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { 
-  getFirestore, 
-  doc, 
-  getDoc, 
-  setDoc, 
+import {
+  getFirestore,
+  doc,
+  collection,
+  getDoc,
+  getDocs,
+  setDoc,
+  deleteDoc,
   onSnapshot,
-  serverTimestamp 
+  writeBatch,
+  serverTimestamp
 } from 'firebase/firestore';
 import { store } from '../core/store.js';
 import { eventBus } from '../core/eventBus.js';
+import { StorageService } from '../core/storage.js';
 
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -24,38 +31,45 @@ export const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-// Validar que las variables mínimas requeridas estén presentes
 const isFirebaseConfigured = Boolean(
-  firebaseConfig.apiKey && 
+  firebaseConfig.apiKey &&
   firebaseConfig.projectId
 );
 
 if (!isFirebaseConfigured) {
   console.warn(
-    '[FinScope] Firebase no está configurado o faltan variables de entorno (VITE_FIREBASE_*). ' +
-    'Revisa tu archivo .env basado en .env.example. La aplicación continuará en modo local.'
+    '[FinScope] Firebase no está configurado (variables VITE_FIREBASE_* ausentes). Modo offline local activo.'
   );
 }
 
-// Inicializar Firebase evitando duplicaciones
 const app = isFirebaseConfigured
   ? (getApps().length > 0 ? getApp() : initializeApp(firebaseConfig))
   : null;
 
 export const db = app ? getFirestore(app) : null;
 
+const SYNCED_COLLECTIONS = ['accounts', 'categories', 'transactions', 'budgets', 'recurring'];
+
 class FirestoreService {
   constructor() {
     this.currentUserId = null;
-    this.unsubscribeSnapshot = null;
-    this.isSyncingFromRemote = false;
+    this.unsubscribers = [];
+    this.isApplyingRemoteChange = false;
     this.saveTimeout = null;
     this.syncStatus = 'disconnected'; // 'connected' | 'syncing' | 'disconnected' | 'error'
     this.listeners = [];
+
+    // Monitoreo de conectividad de red nativo
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => this.handleNetworkOnline());
+      window.addEventListener('offline', () => {
+        this.setSyncStatus('disconnected');
+      });
+    }
   }
 
   /**
-   * Suscribe a observadores para cambios en el estado de sincronización.
+   * Suscribe observadores al cambio de estado de sincronización.
    */
   onSyncStatusChange(cb) {
     this.listeners.push(cb);
@@ -71,8 +85,9 @@ class FirestoreService {
   }
 
   /**
-   * Conecta el almacén a Firestore para el usuario autenticado.
-   * @param {Object} user - Objeto de usuario autenticado con Google.
+   * Conecta el almacén a Firestore bajo el usuario autenticado.
+   * Inicializa subcolecciones e instala listeners de snapshot en tiempo real.
+   * @param {Object} user
    */
   async attachUser(user) {
     if (!user?.id) {
@@ -87,124 +102,280 @@ class FirestoreService {
     this.setSyncStatus('syncing');
 
     if (!db) {
-      console.warn('Firestore no está inicializado: variables de entorno ausentes. Operando con almacenamiento local.');
+      console.warn('[Firestore] Firebase no disponible. Operando en almacenamiento local.');
       this.setSyncStatus('disconnected');
       return;
     }
 
     try {
+      // 1. Sincronizar o crear documento raíz de metadatos (theme, currency, settings)
       const userDocRef = doc(db, 'users', this.currentUserId);
-      const docSnap = await getDoc(userDocRef);
+      const userDocSnap = await getDoc(userDocRef);
 
-      if (docSnap.exists()) {
-        // 1. Existen datos en la nube: aplicarlos al estado local
-        const cloudData = docSnap.data();
-        this.isSyncingFromRemote = true;
-        store.replaceState({
-          accounts: cloudData.accounts || [],
-          categories: cloudData.categories || [],
-          transactions: cloudData.transactions || [],
-          budgets: cloudData.budgets || [],
-          recurring: cloudData.recurring || [],
-          currency: cloudData.currency || 'COP',
-          theme: cloudData.theme || store.theme,
-          settings: cloudData.settings || store.settings
-        });
-        this.isSyncingFromRemote = false;
-        this.setSyncStatus('connected');
+      if (userDocSnap.exists()) {
+        const metaData = userDocSnap.data();
+        if (metaData.currency || metaData.theme || metaData.settings) {
+          store.setState({
+            currency: metaData.currency || store.currency,
+            theme: metaData.theme || store.theme,
+            settings: { ...store.settings, ...(metaData.settings || {}) }
+          }, 'firestore:meta_synced');
+        }
       } else {
-        // 2. Primer inicio de sesión: respaldar datos locales iniciales en Firestore
-        await this.pushLocalToCloud(user);
-        this.setSyncStatus('connected');
+        await setDoc(userDocRef, {
+          userEmail: user.email || '',
+          userName: user.name || '',
+          currency: store.currency,
+          theme: store.theme,
+          settings: store.settings,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        }, { merge: true });
       }
 
-      // 3. Suscribirse a cambios en tiempo real (Multi-dispositivo)
-      this.unsubscribeSnapshot = onSnapshot(userDocRef, (snapshot) => {
-        if (!snapshot.exists()) return;
-        if (this.isSyncingFromRemote) return;
+      // 2. Ejecutar reconciliación inicial LWW de todas las subcolecciones
+      await this.reconcileInitialData(user);
 
-        // Comprobar si el cambio provino de otro dispositivo
-        const source = snapshot.metadata.hasPendingWrites ? 'local' : 'server';
-        if (source === 'server') {
-          const remoteData = snapshot.data();
-          this.isSyncingFromRemote = true;
-          store.replaceState({
-            accounts: remoteData.accounts || [],
-            categories: remoteData.categories || [],
-            transactions: remoteData.transactions || [],
-            budgets: remoteData.budgets || [],
-            recurring: remoteData.recurring || [],
-            currency: remoteData.currency || 'COP',
-            theme: remoteData.theme || store.theme,
-            settings: remoteData.settings || store.settings
-          });
-          this.isSyncingFromRemote = false;
-          this.setSyncStatus('connected');
-        }
-      }, (error) => {
-        console.warn('Advertencia en tiempo real de Firestore:', error);
-        this.setSyncStatus('error');
-      });
+      // 3. Suscribirse en tiempo real a cada subcolección granular
+      this.listenToSubcollections();
 
+      this.setSyncStatus('connected');
     } catch (error) {
-      console.error('Error al conectar con Firestore:', error);
+      console.error('[Firestore] Error conectando con Firestore:', error);
       this.setSyncStatus('error');
     }
   }
 
   /**
-   * Guarda inmediatamente o con debounce el estado actual en Firestore.
+   * Reconciliación inicial bidireccional Last-Write-Wins (LWW) registro a registro.
    */
-  async saveCurrentStateDebounced(user) {
-    if (!this.currentUserId || !db || this.isSyncingFromRemote) return;
+  async reconcileInitialData(user) {
+    if (!db || !this.currentUserId) return;
+
+    for (const collName of SYNCED_COLLECTIONS) {
+      const collRef = collection(db, 'users', this.currentUserId, collName);
+      const snapshot = await getDocs(collRef);
+      const remoteMap = new Map();
+
+      snapshot.forEach(docSnap => {
+        remoteMap.set(docSnap.id, docSnap.data());
+      });
+
+      const localList = [...(store[collName] || [])];
+      const localMap = new Map(localList.map(item => [item.id, item]));
+
+      const mergedList = [];
+      const pendingUploads = [];
+
+      // Evaluar registros remotos contra locales
+      for (const [id, remoteItem] of remoteMap.entries()) {
+        const localItem = localMap.get(id);
+
+        if (!localItem) {
+          // No existe localmente: incorporar si no está eliminado
+          mergedList.push({ ...remoteItem, syncStatus: 'synced' });
+          await StorageService.saveEntity(collName, remoteItem);
+        } else {
+          // Conflicto de concurrencia: comparar updatedAt (LWW)
+          const remoteTime = Number(remoteItem.updatedAt) || 0;
+          const localTime = Number(localItem.updatedAt) || 0;
+
+          if (remoteTime > localTime) {
+            // Remoto es más reciente: gana remoto
+            mergedList.push({ ...remoteItem, syncStatus: 'synced' });
+            await StorageService.saveEntity(collName, remoteItem);
+          } else if (localTime > remoteTime) {
+            // Local es más reciente: gana local y se encola para subir
+            mergedList.push(localItem);
+            pendingUploads.push(localItem);
+          } else {
+            // Idéntico timestamp
+            mergedList.push({ ...localItem, syncStatus: 'synced' });
+          }
+        }
+      }
+
+      // Evaluar registros locales que aún no existen en la nube
+      for (const [id, localItem] of localMap.entries()) {
+        if (!remoteMap.has(id)) {
+          mergedList.push(localItem);
+          pendingUploads.push(localItem);
+        }
+      }
+
+      // Actualizar estado en memoria
+      this.isApplyingRemoteChange = true;
+      store.setState({ [collName]: mergedList }, `firestore:reconciled:${collName}`);
+      this.isApplyingRemoteChange = false;
+
+      // Subir registros locales más recientes
+      if (pendingUploads.length > 0) {
+        await this.uploadBatch(collName, pendingUploads);
+      }
+    }
+  }
+
+  /**
+   * Instala listeners de tiempo real en cada subcolección.
+   */
+  listenToSubcollections() {
+    this.unsubscribers.forEach(unsub => unsub());
+    this.unsubscribers = [];
+
+    for (const collName of SYNCED_COLLECTIONS) {
+      const collRef = collection(db, 'users', this.currentUserId, collName);
+
+      const unsub = onSnapshot(collRef, snapshot => {
+        if (this.isApplyingRemoteChange) return;
+
+        snapshot.docChanges().forEach(change => {
+          const docData = change.doc.data();
+          const docId = change.doc.id;
+
+          if (change.type === 'added' || change.type === 'modified') {
+            this.handleRemoteRecordChange(collName, docId, docData);
+          } else if (change.type === 'removed') {
+            this.handleRemoteRecordRemoval(collName, docId);
+          }
+        });
+      }, error => {
+        console.warn(`[Firestore] Error escuchando colección ${collName}:`, error);
+        this.setSyncStatus('error');
+      });
+
+      this.unsubscribers.push(unsub);
+    }
+  }
+
+  /**
+   * Resuelve cambios en tiempo real provenientes de otros dispositivos con Last-Write-Wins.
+   */
+  async handleRemoteRecordChange(collName, id, remoteRecord) {
+    const localList = store[collName] || [];
+    const localItem = localList.find(item => item.id === id);
+
+    const remoteTime = Number(remoteRecord.updatedAt) || 0;
+    const localTime = localItem ? Number(localItem.updatedAt || 0) : 0;
+
+    // Solo aplicar si el registro remoto es más reciente
+    if (!localItem || remoteTime >= localTime) {
+      this.isApplyingRemoteChange = true;
+
+      const updatedRecord = { ...remoteRecord, syncStatus: 'synced' };
+      const updatedList = localItem
+        ? localList.map(item => (item.id === id ? updatedRecord : item))
+        : [...localList, updatedRecord];
+
+      store.setState({ [collName]: updatedList }, `remote:${collName}:updated`);
+      await StorageService.saveEntity(collName, updatedRecord);
+
+      this.isApplyingRemoteChange = false;
+    }
+  }
+
+  /**
+   * Maneja eliminaciones remotas.
+   */
+  async handleRemoteRecordRemoval(collName, id) {
+    const localList = store[collName] || [];
+    const localItem = localList.find(item => item.id === id);
+    if (!localItem) return;
+
+    this.isApplyingRemoteChange = true;
+    const now = Date.now();
+    const softDeleted = { ...localItem, deletedAt: now, updatedAt: now, syncStatus: 'synced' };
+    const updatedList = localList.map(item => (item.id === id ? softDeleted : item));
+
+    store.setState({ [collName]: updatedList }, `remote:${collName}:deleted`);
+    await StorageService.saveEntity(collName, softDeleted);
+    this.isApplyingRemoteChange = false;
+  }
+
+  /**
+   * Sube un lote de registros a una subcolección de Firestore.
+   */
+  async uploadBatch(collName, items) {
+    if (!db || !this.currentUserId || items.length === 0) return;
+
+    try {
+      const batch = writeBatch(db);
+      for (const item of items) {
+        const itemRef = doc(db, 'users', this.currentUserId, collName, item.id);
+        const { syncStatus, ...cleanItem } = item;
+        batch.set(itemRef, cleanItem, { merge: true });
+      }
+      await batch.commit();
+
+      // Marcar como sincronizados localmente
+      const syncedItems = items.map(it => ({ ...it, syncStatus: 'synced' }));
+      for (const s of syncedItems) {
+        await StorageService.saveEntity(collName, s);
+      }
+    } catch (err) {
+      console.error(`[Firestore] Error subiendo lote de ${collName}:`, err);
+    }
+  }
+
+  /**
+   * Sincroniza cambios pendientes locales con debounce.
+   */
+  saveCurrentStateDebounced(user) {
+    if (!this.currentUserId || !db || this.isApplyingRemoteChange) return;
 
     this.setSyncStatus('syncing');
     clearTimeout(this.saveTimeout);
 
     this.saveTimeout = setTimeout(async () => {
       try {
-        await this.pushLocalToCloud(user);
+        await this.pushPendingChanges();
         this.setSyncStatus('connected');
       } catch (err) {
-        console.error('Error guardando en Firestore:', err);
+        console.error('[Firestore] Error subiendo cambios pendientes:', err);
         this.setSyncStatus('error');
       }
-    }, 400);
+    }, 450);
   }
 
   /**
-   * Envía el estado completo a la nube.
+   * Encuentra y sube todas las entidades con `syncStatus === 'pending'`.
    */
-  async pushLocalToCloud(user) {
-    if (!this.currentUserId || !db) return;
+  async pushPendingChanges() {
+    if (!db || !this.currentUserId) return;
+
+    for (const collName of SYNCED_COLLECTIONS) {
+      const items = (store[collName] || []).filter(item => item.syncStatus === 'pending');
+      if (items.length > 0) {
+        await this.uploadBatch(collName, items);
+      }
+    }
+
+    // Actualizar metadatos raíz
     const userDocRef = doc(db, 'users', this.currentUserId);
-    const state = store.getState();
-
-    const payload = {
-      transactions: state.transactions || [],
-      accounts: state.accounts || [],
-      categories: state.categories || [],
-      budgets: state.budgets || [],
-      recurring: state.recurring || [],
-      currency: state.currency || 'COP',
-      theme: state.theme || 'light',
-      settings: state.settings || {},
-      userEmail: user?.email || '',
-      userName: user?.name || '',
+    await setDoc(userDocRef, {
+      currency: store.currency,
+      theme: store.theme,
+      settings: store.settings,
       updatedAt: serverTimestamp()
-    };
-
-    await setDoc(userDocRef, payload, { merge: true });
+    }, { merge: true });
   }
 
   /**
-   * Desconecta los listeners cuando el usuario cierra sesión.
+   * Reconexión de red: reanuda sincronización y vacía la cola pendiente.
+   */
+  async handleNetworkOnline() {
+    if (!this.currentUserId) return;
+    console.log('[Firestore] Conexión de red recuperada. Vaciando cola offline...');
+    this.setSyncStatus('syncing');
+    await this.pushPendingChanges();
+    this.setSyncStatus('connected');
+  }
+
+  /**
+   * Desconecta observadores al cerrar sesión.
    */
   detachUser() {
-    if (this.unsubscribeSnapshot) {
-      this.unsubscribeSnapshot();
-      this.unsubscribeSnapshot = null;
-    }
+    this.unsubscribers.forEach(unsub => unsub());
+    this.unsubscribers = [];
     this.currentUserId = null;
     this.setSyncStatus('disconnected');
   }

@@ -5,17 +5,17 @@ import { store } from '../core/store.js';
 
 class CategoryService {
   /**
-   * Obtiene todas las categorías.
+   * Obtiene todas las categorías activas (no eliminadas).
    */
   getAll() {
-    return store.categories;
+    return (store.categories || []).filter(c => !c.deletedAt);
   }
 
   /**
-   * Obtiene categorías filtradas por tipo ('expense' | 'income').
+   * Obtiene categorías filtradas por tipo ('expense' | 'income') activas.
    */
   getByType(type) {
-    return store.categories.filter(c => c.type === type);
+    return (store.categories || []).filter(c => !c.deletedAt && c.type === type);
   }
 
   /**
@@ -23,7 +23,7 @@ class CategoryService {
    */
   getById(id) {
     return (
-      store.categories.find(c => c.id === id) || {
+      (store.categories || []).find(c => c.id === id && !c.deletedAt) || {
         id: 'uncategorized',
         name: 'Sin categoría',
         type: 'expense',
@@ -34,7 +34,7 @@ class CategoryService {
   }
 
   /**
-   * Agrega o edita una categoría.
+   * Agrega o edita una categoría con metadatos LWW.
    */
   saveCategory({ id, name, type, color, icon }) {
     const trimmedName = (name || '').trim();
@@ -42,9 +42,10 @@ class CategoryService {
       return { success: false, error: 'El nombre de la categoría es obligatorio.' };
     }
 
-    const categories = store.categories;
+    const categories = store.categories || [];
     const isDuplicate = categories.some(
-      c => c.name.toLocaleLowerCase('es-CO') === trimmedName.toLocaleLowerCase('es-CO') &&
+      c => !c.deletedAt &&
+           c.name.toLocaleLowerCase('es-CO') === trimmedName.toLocaleLowerCase('es-CO') &&
            c.type === type &&
            c.id !== id
     );
@@ -53,9 +54,11 @@ class CategoryService {
       return { success: false, error: 'Ya existe una categoría con ese nombre y tipo.' };
     }
 
+    const now = Date.now();
+
     if (id) {
       // Modificación
-      const existing = categories.find(c => c.id === id);
+      const existing = categories.find(c => c.id === id && !c.deletedAt);
       if (!existing) {
         return { success: false, error: 'Categoría no encontrada.' };
       }
@@ -69,19 +72,23 @@ class CategoryService {
       }
 
       const updated = categories.map(c =>
-        c.id === id ? { ...c, name: trimmedName, type, color, icon } : c
+        c.id === id ? { ...c, name: trimmedName, type, color, icon, updatedAt: now, syncStatus: 'pending' } : c
       );
       store.setState({ categories: updated }, 'category:updated');
-      return { success: true, category: { ...existing, name: trimmedName, type, color, icon } };
+      return { success: true, category: { ...existing, name: trimmedName, type, color, icon, updatedAt: now, syncStatus: 'pending' } };
     } else {
       // Creación
       const newCategory = {
-        id: `cat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        id: `cat-${now}-${Math.random().toString(36).slice(2, 7)}`,
         name: trimmedName,
         type,
         color: color || '#52525b',
         icon: icon || '◈',
-        locked: false
+        locked: false,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+        syncStatus: 'pending'
       };
 
       store.setState({ categories: [...categories, newCategory] }, 'category:created');
@@ -90,17 +97,17 @@ class CategoryService {
   }
 
   /**
-   * Comprueba si una categoría está asociada a transacciones, presupuestos o recurrentes.
+   * Comprueba si una categoría activa está asociada a transacciones, presupuestos o recurrentes activos.
    */
   isCategoryInUse(categoryId) {
-    const hasTx = store.transactions.some(t => t.categoryId === categoryId);
-    const hasBudget = store.budgets.some(b => b.categoryId === categoryId);
-    const hasRecurring = store.recurring.some(r => r.categoryId === categoryId);
+    const hasTx = (store.transactions || []).some(t => !t.deletedAt && t.categoryId === categoryId);
+    const hasBudget = (store.budgets || []).some(b => !b.deletedAt && b.categoryId === categoryId);
+    const hasRecurring = (store.recurring || []).some(r => !r.deletedAt && r.categoryId === categoryId);
     return hasTx || hasBudget || hasRecurring;
   }
 
   /**
-   * Elimina una categoría si no está en uso.
+   * Realiza Soft Delete en una categoría si no está en uso activo.
    */
   deleteCategory(id) {
     if (this.isCategoryInUse(id)) {
@@ -110,8 +117,11 @@ class CategoryService {
       };
     }
 
-    const filtered = store.categories.filter(c => c.id !== id);
-    store.setState({ categories: filtered }, 'category:deleted');
+    const now = Date.now();
+    const updated = (store.categories || []).map(c =>
+      c.id === id ? { ...c, deletedAt: now, updatedAt: now, syncStatus: 'pending' } : c
+    );
+    store.setState({ categories: updated }, 'category:deleted');
     return { success: true };
   }
 }

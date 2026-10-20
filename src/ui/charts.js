@@ -1,5 +1,7 @@
 /**
- * Renderizador de gráficos interactivos de alto rendimiento con Canvas y CSS nativo.
+ * src/ui/charts.js
+ * Renderizador de gráficos Canvas interactivos v3 con Safe Math (centavos)
+ * y exclusión estricta de transferencias y movimientos internos de alcancías.
  */
 import { currencyService } from '../services/currencyService.js';
 import { categoryService } from '../services/categoryService.js';
@@ -7,13 +9,19 @@ import { categoryService } from '../services/categoryService.js';
 export class ChartRenderer {
   /**
    * Renderiza el gráfico de flujo de caja diario en el elemento canvas.
+   * Excluye estrictamente transferencias y movimientos internos de alcancías.
    */
   static renderCashflow(canvasId, emptyId, transactions, year, month) {
     const canvas = document.getElementById(canvasId);
     const empty = document.getElementById(emptyId);
     if (!canvas) return;
 
-    const hasAny = transactions.length > 0;
+    // Filtrar estrictamente: solo ingresos y gastos operativos activos
+    const validTxs = (transactions || []).filter(
+      t => !t.deletedAt && (t.type === 'income' || t.type === 'expense')
+    );
+
+    const hasAny = validTxs.length > 0;
     if (empty) empty.classList.toggle('hidden', hasAny);
 
     const rect = canvas.getBoundingClientRect();
@@ -31,11 +39,11 @@ export class ChartRenderer {
     const days = new Date(year, month, 0).getDate();
     const daily = Array.from({ length: days }, () => ({ income: 0, expense: 0 }));
 
-    transactions.forEach(t => {
+    validTxs.forEach(t => {
       const day = Number((t.date || '').slice(8, 10));
       if (day >= 1 && day <= days) {
-        if (t.type === 'income') daily[day - 1].income += Number(t.amount || 0);
-        else if (t.type === 'expense') daily[day - 1].expense += Number(t.amount || 0);
+        if (t.type === 'income') daily[day - 1].income += Number(t.amount || 0); // en centavos
+        else if (t.type === 'expense') daily[day - 1].expense += Number(t.amount || 0); // en centavos
       }
     });
 
@@ -48,7 +56,7 @@ export class ChartRenderer {
     const gridColor = isDark ? '#27272a' : '#e4e4e7';
     const textColor = isDark ? '#a1a1aa' : '#71717a';
 
-    // Líneas de cuadrícula y etiquetas del eje Y
+    // Líneas de cuadrícula y etiquetas del eje Y (formateando desde centavos a unidades mayores)
     ctx.font = '10px "DM Sans", sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
@@ -62,9 +70,9 @@ export class ChartRenderer {
       ctx.lineTo(width - pad.right, y);
       ctx.stroke();
 
-      const val = maxValue * (1 - i / 3);
+      const centsVal = maxValue * (1 - i / 3);
       ctx.fillStyle = textColor;
-      ctx.fillText(this.formatAxisValue(val), pad.left - 8, y);
+      ctx.fillText(this.formatAxisValue(centsVal), pad.left - 8, y);
     }
 
     // Barras de ingresos y gastos
@@ -76,14 +84,14 @@ export class ChartRenderer {
       const hIncome = (d.income / maxValue) * chartH;
       const hExpense = (d.expense / maxValue) * chartH;
 
-      // Barra de Ingreso (Neutro Oscuro / Claro en Dark Mode)
+      // Barra de Ingreso
       if (hIncome > 0) {
         ctx.fillStyle = isDark ? '#f4f4f5' : '#18181b';
         this.drawRoundRect(ctx, x - barW - 1, pad.top + chartH - hIncome, barW, hIncome, 3);
         ctx.fill();
       }
 
-      // Barra de Gasto (Gris Neutro / Slate)
+      // Barra de Gasto
       if (hExpense > 0) {
         ctx.fillStyle = isDark ? '#52525b' : '#a1a1aa';
         this.drawRoundRect(ctx, x + 1, pad.top + chartH - hExpense, barW, hExpense, 3);
@@ -107,7 +115,8 @@ export class ChartRenderer {
   }
 
   /**
-   * Renderiza el gráfico tipo Dona con distribución por categorías.
+   * Renderiza el gráfico tipo Dona con distribución de gastos por categorías.
+   * Excluye ingresos, transferencias y movimientos internos de alcancías.
    */
   static renderDonut(donutId, totalId, legendId, transactions) {
     const donutEl = document.getElementById(donutId);
@@ -116,18 +125,19 @@ export class ChartRenderer {
     if (!donutEl || !legendEl) return;
 
     const isDark = document.body.classList.contains('dark');
-    const expenses = transactions.filter(t => t.type === 'expense');
+    // Solo gastos operativos activos
+    const expenses = (transactions || []).filter(t => !t.deletedAt && t.type === 'expense');
     const totals = new Map();
 
     expenses.forEach(t => {
-      totals.set(t.categoryId, (totals.get(t.categoryId) || 0) + Number(t.amount || 0));
+      totals.set(t.categoryId, (totals.get(t.categoryId) || 0) + Number(t.amount || 0)); // en centavos
     });
 
     const entries = [...totals.entries()]
       .map(([id, amount]) => ({ category: categoryService.getById(id), amount }))
       .sort((a, b) => b.amount - a.amount);
 
-    const total = expenses.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    const total = expenses.reduce((sum, t) => sum + Number(t.amount || 0), 0); // en centavos
     if (totalEl) totalEl.textContent = currencyService.formatShort(total);
 
     if (!total || entries.length === 0) {
@@ -142,7 +152,7 @@ export class ChartRenderer {
     entries.forEach(({ category, amount }) => {
       const start = angle;
       angle += (amount / total) * 360;
-      stops.push(`${category.color} ${start}deg ${angle}deg`);
+      stops.push(`${category?.color || '#3f3f46'} ${start}deg ${angle}deg`);
     });
 
     donutEl.style.background = `conic-gradient(${stops.join(',')})`;
@@ -155,18 +165,24 @@ export class ChartRenderer {
       const pct = Math.round((amount / total) * 100);
       return `
         <div class="legend-row">
-          <span class="legend-swatch" style="background:${category.color}"></span>
-          <span class="legend-category" title="${escapeHTML(category.name)}">${escapeHTML(category.name)}</span>
+          <span class="legend-swatch" style="background:${category?.color || '#3f3f46'}"></span>
+          <span class="legend-category" title="${escapeHTML(category?.name || 'General')}">${escapeHTML(category?.name || 'General')}</span>
           <span class="legend-amount">${pct}% <small class="muted">(${currencyService.formatShort(amount)})</small></span>
         </div>
       `;
     }).join('');
   }
 
-  static formatAxisValue(value) {
-    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
-    if (value >= 1000) return `${Math.round(value / 1000)}k`;
-    return Math.round(value).toString();
+  /**
+   * Formatea el valor del eje Y recibiendo centavos y mostrando unidades abreviadas (k, M).
+   * @param {number} cents
+   * @returns {string}
+   */
+  static formatAxisValue(cents) {
+    const majorUnit = currencyService.fromCents(cents);
+    if (majorUnit >= 1000000) return `${(majorUnit / 1000000).toFixed(1)}M`;
+    if (majorUnit >= 1000) return `${Math.round(majorUnit / 1000)}k`;
+    return Math.round(majorUnit).toString();
   }
 
   static drawRoundRect(ctx, x, y, w, h, r) {

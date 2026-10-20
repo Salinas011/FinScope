@@ -1,19 +1,23 @@
 {
-  "name": "finanzas-dashboard",
-  "version": "2.0.0",
-  "description": "Dashboard de Finanzas Personales — Arquitectura Modular y Escalable",
+  "name": "finscope",
+  "version": "3.0.0",
+  "description": "FinScope v3 — Dashboard de Finanzas Personales Offline-First con IndexedDB, Safe Math y Alcancías",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:verify": "node scripts/verify-v3.js"
   },
   "keywords": [
     "finanzas",
     "dashboard",
-    "presupuestos",
-    "escalable",
-    "modular"
+    "finscope",
+    "offline-first",
+    "indexeddb",
+    "firestore",
+    "safe-math",
+    "clean-architecture"
   ],
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

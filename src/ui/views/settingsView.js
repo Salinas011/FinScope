@@ -18,12 +18,12 @@ export class SettingsView {
       `).join('');
     }
 
-    // Estadísticas de almacenamiento
-    const totalTx = store.transactions.length;
-    const totalCat = store.categories.length;
-    const totalAcc = store.accounts.length;
-    const totalBgt = store.budgets.length;
-    const totalRec = store.recurring.length;
+    // Estadísticas de almacenamiento (registros activos)
+    const totalTx = (store.transactions || []).filter(t => !t.deletedAt).length;
+    const totalCat = (store.categories || []).filter(c => !c.deletedAt).length;
+    const totalAcc = (store.accounts || []).filter(a => !a.deletedAt).length;
+    const totalBgt = (store.budgets || []).filter(b => !b.deletedAt).length;
+    const totalRec = (store.recurring || []).filter(r => !r.deletedAt).length;
 
     const statsEl = document.getElementById('settingsDataStats');
     if (statsEl) {

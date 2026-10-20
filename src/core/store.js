@@ -1,40 +1,82 @@
 /**
- * Almacén reactivo de estado global centralizado (Single Source of Truth).
+ * src/core/store.js
+ * Almacén reactivo de estado global centralizado v3 (Single Source of Truth).
+ * Soporta hidratación asíncrona mediante IndexedDB, Safe Math, alcancías (pockets)
+ * y arquitectura reactiva orientada a eventos.
  */
 import { StorageService } from './storage.js';
 import { eventBus } from './eventBus.js';
 
 class Store {
   constructor() {
-    this._state = StorageService.load();
+    // Inicialización síncrona segura con estado en blanco v3 para evitar errores de renderizado
+    this._state = StorageService.getBlankState();
+    this._isHydrated = false;
     this._subscribers = new Set();
   }
 
   /**
-   * Obtiene una copia de sólo lectura del estado.
+   * Hidrata el almacén de forma asíncrona desde IndexedDB
+   * y ejecuta las migraciones si existen versiones previas.
+   * Notifica a la aplicación a través de eventBus ('store:hydrated' y 'app:ready').
+   * @returns {Promise<Object>}
+   */
+  async init() {
+    try {
+      const persistedState = await StorageService.init();
+      this._state = persistedState;
+      this._isHydrated = true;
+
+      // Notificar a todos los suscriptores reactivos registrados
+      this._notifySubscribers(this._state);
+
+      // Emisión de eventos para main.js y servicios externos
+      eventBus.emit('store:hydrated', this._state);
+      eventBus.emit('app:ready', this._state);
+
+      console.log('[Store] Hidratación v3 completada exitosamente desde IndexedDB.');
+      return this._state;
+    } catch (error) {
+      console.error('[Store] Error durante la hidratación del Store:', error);
+      eventBus.emit('error:storage', 'Error inicializando almacenamiento local IndexedDB.');
+      return this._state;
+    }
+  }
+
+  /**
+   * Indica si el almacén ya completó su hidratación inicial desde la base de datos.
+   * @returns {boolean}
+   */
+  get isHydrated() {
+    return this._isHydrated;
+  }
+
+  /**
+   * Obtiene una copia del estado completo.
+   * @returns {Object}
    */
   getState() {
     return this._state;
   }
 
   get transactions() {
-    return this._state.transactions;
+    return this._state.transactions || [];
   }
 
   get accounts() {
-    return this._state.accounts;
+    return this._state.accounts || [];
   }
 
   get categories() {
-    return this._state.categories;
+    return this._state.categories || [];
   }
 
   get budgets() {
-    return this._state.budgets;
+    return this._state.budgets || [];
   }
 
   get recurring() {
-    return this._state.recurring;
+    return this._state.recurring || [];
   }
 
   get currency() {
@@ -46,13 +88,13 @@ class Store {
   }
 
   get settings() {
-    return this._state.settings;
+    return this._state.settings || { dateFormat: 'es-CO', pageSize: 25 };
   }
 
   /**
-   * Actualiza una porción del estado de forma inmutable y persiste.
-   * @param {Object|Function} updater Objeto parcial o función que recibe estado previo.
-   * @param {string} [actionTag] Etiqueta opcional para depuración o eventos selectivos.
+   * Actualiza una porción del estado de forma inmutable y persiste en IndexedDB.
+   * @param {Object|Function} updater Objeto parcial o función que recibe el estado previo.
+   * @param {string} [actionTag='state:updated'] Etiqueta semántica para auditoría y observadores.
    */
   setState(updater, actionTag = 'state:updated') {
     const prevState = this._state;
@@ -63,22 +105,28 @@ class Store {
       ...partial
     };
 
-    // Persistir
-    const saveResult = StorageService.save(this._state);
-    if (!saveResult.success) {
-      eventBus.emit('error:storage', saveResult.error);
-    }
+    // Persistencia asíncrona desacoplada en IndexedDB
+    StorageService.saveState(this._state).then(result => {
+      if (!result.success) {
+        eventBus.emit('error:storage', result.error);
+      }
+    }).catch(err => {
+      console.error('[Store] Error guardando estado en IndexedDB:', err);
+      eventBus.emit('error:storage', 'No se pudieron guardar los cambios en la base de datos.');
+    });
 
-    // Notificar a observadores generales
+    // 1. Notificar a observadores síncronos de la UI
     this._notifySubscribers(this._state, prevState);
 
-    // Emitir en el bus de eventos
+    // 2. Emitir eventos en el EventBus para sincronización y log
     eventBus.emit(actionTag, { state: this._state, prevState });
     eventBus.emit('state:changed', { state: this._state, actionTag });
   }
 
   /**
    * Suscribe una función para escuchar cambios de estado.
+   * @param {Function} callback
+   * @returns {Function} Desuscriptor
    */
   subscribe(callback) {
     this._subscribers.add(callback);
@@ -90,28 +138,34 @@ class Store {
       try {
         cb(state, prevState);
       } catch (err) {
-        console.error('Error en suscriptor del Store:', err);
+        console.error('[Store] Error en callback de suscriptor:', err);
       }
     });
   }
 
   /**
-   * Reemplaza el estado completamente (por ejemplo al importar un respaldo).
+   * Reemplaza el estado completamente (ej. al restaurar respaldo JSON o sincronizar nube).
+   * @param {Object} newState
    */
-  replaceState(newState) {
-    const normalized = StorageService.normalizeState(newState);
-    this._state = normalized;
-    StorageService.save(this._state);
+  async replaceState(newState) {
+    const blank = StorageService.getBlankState();
+    this._state = {
+      ...blank,
+      ...newState,
+      version: 3
+    };
+
+    await StorageService.saveState(this._state);
     this._notifySubscribers(this._state);
     eventBus.emit('state:replaced', this._state);
     eventBus.emit('state:changed', { state: this._state, actionTag: 'state:replaced' });
   }
 
   /**
-   * Restablece los datos de fábrica.
+   * Restablece los datos de fábrica vaciando IndexedDB y retornando al estado v3 en blanco.
    */
-  reset() {
-    this._state = StorageService.reset();
+  async reset() {
+    this._state = await StorageService.reset();
     this._notifySubscribers(this._state);
     eventBus.emit('state:reset', this._state);
     eventBus.emit('state:changed', { state: this._state, actionTag: 'state:reset' });

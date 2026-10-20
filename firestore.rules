@@ -1,0 +1,63 @@
+rules_version = '2';
+
+/**
+ * firestore.rules
+ * Reglas de seguridad para FinScope v3 (Producción)
+ * 
+ * Estructura de subcolecciones granulares:
+ * /users/{userId}/{collection}/{docId}
+ * 
+ * Políticas:
+ * - Acceso exclusivo al usuario propietario autenticado (request.auth.uid == userId).
+ * - Restricción estricta de colecciones a: accounts, categories, transactions, budgets, recurring.
+ * - Validación de integridad para Last-Write-Wins (LWW): exige id (string no vacío) y updatedAt (número/timestamp).
+ */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Funciones auxiliares de autorización
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidCollection(col) {
+      return col in ['accounts', 'categories', 'transactions', 'budgets', 'recurring'];
+    }
+
+    // Validación de integridad para motor LWW (Last-Write-Wins)
+    function hasValidMetadata() {
+      let data = request.resource.data;
+      return data.keys().hasAll(['id', 'updatedAt'])
+        && data.id is string
+        && data.id.size() > 0
+        && (data.updatedAt is number || data.updatedAt is timestamp);
+    }
+
+    // Reglas para subcolecciones de usuario
+    match /users/{userId} {
+      // Documento raíz del usuario (perfil o metadatos de sincronización)
+      allow read, write: if isOwner(userId);
+
+      // Subcolecciones granulares v3
+      match /{collection}/{docId} {
+        allow read: if isOwner(userId) && isValidCollection(collection);
+        
+        allow create, update: if isOwner(userId)
+                             && isValidCollection(collection)
+                             && hasValidMetadata();
+                             
+        allow delete: if isOwner(userId) && isValidCollection(collection);
+      }
+    }
+
+    // Denegación por defecto para cualquier otra ruta
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

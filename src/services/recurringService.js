@@ -1,40 +1,48 @@
 /**
- * Servicio para gestión de suscripciones y gastos/ingresos recurrentes.
+ * src/services/recurringService.js
+ * Servicio para gestión de suscripciones y pagos recurrentes v3 con Safe Math (centavos) y LWW.
  */
 import { store } from '../core/store.js';
 import { transactionService } from './transactionService.js';
+import { currencyService } from './currencyService.js';
 
 class RecurringService {
   /**
-   * Obtiene todas las reglas de movimientos recurrentes.
+   * Obtiene todas las reglas de movimientos recurrentes activas.
+   * @returns {Array}
    */
   getAll() {
-    return store.recurring;
+    return (store.recurring || []).filter(r => !r.deletedAt);
   }
 
   /**
    * Obtiene un registro recurrente por ID.
+   * @param {string} id
+   * @returns {Object|undefined}
    */
   getById(id) {
-    return store.recurring.find(r => r.id === id);
+    return (store.recurring || []).find(r => r.id === id && !r.deletedAt);
   }
 
   /**
-   * Calcula el compromiso mensual total proyectado por suscripciones y gastos fijos activos.
+   * Calcula el compromiso mensual total proyectado por suscripciones activas en centavos.
+   * @returns {number} Centavos.
    */
   getMonthlyCommitment() {
-    return store.recurring
+    return this.getAll()
       .filter(r => r.active && r.type === 'expense')
       .reduce((total, r) => {
-        const amt = Number(r.amount) || 0;
-        if (r.frequency === 'weekly') return total + amt * 4.33;
-        if (r.frequency === 'yearly') return total + amt / 12;
+        const amt = Number(r.amount) || 0; // en centavos
+        if (r.frequency === 'weekly') return total + Math.round(amt * 4.33);
+        if (r.frequency === 'yearly') return total + Math.round(amt / 12);
         return total + amt;
       }, 0);
   }
 
   /**
-   * Guarda o actualiza un movimiento recurrente.
+   * Guarda o actualiza un movimiento recurrente con Safe Math (centavos) y metadatos LWW.
+   * @param {Object} recurringData
+   * @returns {Object}
    */
   saveRecurring({
     id,
@@ -49,22 +57,24 @@ class RecurringService {
     active = true
   }) {
     const trimmedTitle = (title || '').trim();
-    const numAmount = Math.round(Number(amount));
+    const amountInCents = currencyService.toCents(amount);
     const safeDueDay = Math.min(31, Math.max(1, parseInt(dueDay, 10) || 1));
 
     if (!trimmedTitle) {
       return { success: false, error: 'El nombre de la suscripción o gasto es obligatorio.' };
     }
-    if (!Number.isFinite(numAmount) || numAmount <= 0) {
-      return { success: false, error: 'El monto debe ser mayor a cero.' };
+    if (amountInCents <= 0) {
+      return { success: false, error: 'El monto debe ser un valor positivo mayor a cero.' };
     }
 
     const finalAccountId = accountId || store.accounts[0]?.id || 'acc-bank';
+    const now = Date.now();
+    const existing = id ? this.getById(id) : null;
 
     const payload = {
-      id: id || `rec-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id: id || `rec-${now}-${Math.random().toString(36).slice(2, 7)}`,
       title: trimmedTitle,
-      amount: numAmount,
+      amount: amountInCents,
       type,
       categoryId,
       accountId: finalAccountId,
@@ -72,11 +82,14 @@ class RecurringService {
       dueDay: safeDueDay,
       note: (note || '').trim(),
       active: Boolean(active),
-      createdAt: id ? (this.getById(id)?.createdAt || Date.now()) : Date.now(),
-      lastAppliedMonth: id ? (this.getById(id)?.lastAppliedMonth || null) : null
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+      deletedAt: null,
+      syncStatus: 'pending',
+      lastAppliedMonth: existing?.lastAppliedMonth || null
     };
 
-    const list = store.recurring;
+    const list = store.recurring || [];
     if (id) {
       const updated = list.map(r => (r.id === id ? payload : r));
       store.setState({ recurring: updated }, 'recurring:updated');
@@ -89,66 +102,82 @@ class RecurringService {
 
   /**
    * Cambia el estado activo/pausado de una recurrencia.
+   * @param {string} id
+   * @returns {Object}
    */
   toggleActive(id) {
     const rec = this.getById(id);
-    if (!rec) return { success: false };
+    if (!rec) return { success: false, error: 'Recurrencia no encontrada.' };
 
-    return this.saveRecurring({ ...rec, active: !rec.active });
-  }
-
-  /**
-   * Elimina un movimiento recurrente.
-   */
-  deleteRecurring(id) {
-    const filtered = store.recurring.filter(r => r.id !== id);
-    store.setState({ recurring: filtered }, 'recurring:deleted');
+    const now = Date.now();
+    const updated = (store.recurring || []).map(r =>
+      r.id === id ? { ...r, active: !r.active, updatedAt: now, syncStatus: 'pending' } : r
+    );
+    store.setState({ recurring: updated }, 'recurring:updated');
     return { success: true };
   }
 
   /**
-   * Aplica un movimiento recurrente al mes actual creando una transacción efectiva,
-   * evitando duplicaciones en el mismo mes.
+   * Elimina un movimiento recurrente (Soft Delete).
+   * @param {string} id
+   * @returns {Object}
+   */
+  deleteRecurring(id) {
+    const now = Date.now();
+    const updated = (store.recurring || []).map(r =>
+      r.id === id ? { ...r, deletedAt: now, updatedAt: now, syncStatus: 'pending' } : r
+    );
+    store.setState({ recurring: updated }, 'recurring:deleted');
+    return { success: true };
+  }
+
+  /**
+   * Aplica un movimiento recurrente al mes seleccionado generando la transacción correspondiente.
+   * Evita duplicaciones en el mismo mes.
+   * @param {string} recurringId
+   * @param {string} targetMonth 'YYYY-MM'
+   * @returns {Object}
    */
   applyToMonth(recurringId, targetMonth) {
     const rec = this.getById(recurringId);
     if (!rec) return { success: false, error: 'Gasto recurrente no encontrado.' };
 
-    const dayStr = String(rec.dueDay).padStart(2, '0');
     const [year, month] = targetMonth.split('-');
-    // Asegurar fecha válida considerando meses con menos días
     const maxDay = new Date(Number(year), Number(month), 0).getDate();
     const effectiveDay = Math.min(rec.dueDay, maxDay);
     const dateStr = `${targetMonth}-${String(effectiveDay).padStart(2, '0')}`;
 
-    // Comprobar si ya se aplicó este mes
-    const alreadyApplied = store.transactions.some(
-      t => t.recurringId === rec.id && t.date && t.date.startsWith(targetMonth)
+    // Validar si ya fue aplicado en targetMonth
+    const alreadyApplied = (store.transactions || []).some(
+      t => !t.deletedAt && t.recurringId === rec.id && t.date && t.date.startsWith(targetMonth)
     );
 
     if (alreadyApplied) {
       return { success: false, error: `Este movimiento ya fue registrado para el mes ${targetMonth}.` };
     }
 
-    // Crear la transacción
+    // Convertir centavos a formato decimal para transactionService.saveTransaction
+    const majorAmount = currencyService.fromCents(rec.amount);
+
     const txResult = transactionService.saveTransaction({
       title: `${rec.title} (${rec.frequency === 'yearly' ? 'Anual' : 'Recurrente'})`,
-      amount: rec.amount,
+      amount: majorAmount,
       type: rec.type,
       date: dateStr,
       categoryId: rec.categoryId,
       accountId: rec.accountId,
+      pocketId: null,
       method: 'Transferencia',
-      note: rec.note ? `Suscripción: ${rec.note}` : 'Suscripción o pago recurrente programado'
+      note: rec.note ? `Suscripción: ${rec.note}` : 'Suscripción o pago programado'
     });
 
     if (txResult.success) {
-      // Marcar la transacción con el ID recurrente
-      const updatedTxs = store.transactions.map(t =>
+      const now = Date.now();
+      const updatedTxs = (store.transactions || []).map(t =>
         t.id === txResult.transaction.id ? { ...t, recurringId: rec.id } : t
       );
-      const updatedRecs = store.recurring.map(r =>
-        r.id === rec.id ? { ...r, lastAppliedMonth: targetMonth } : r
+      const updatedRecs = (store.recurring || []).map(r =>
+        r.id === rec.id ? { ...r, lastAppliedMonth: targetMonth, updatedAt: now, syncStatus: 'pending' } : r
       );
       store.setState({ transactions: updatedTxs, recurring: updatedRecs }, 'recurring:applied');
       return { success: true };

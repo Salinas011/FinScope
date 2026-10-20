@@ -2,9 +2,10 @@
  * Constantes y valores por defecto del sistema Finanza.
  */
 
+export const STORAGE_KEY_V3 = 'finanza_dashboard_v3';
 export const STORAGE_KEY_V2 = 'finanza_dashboard_v2';
 export const STORAGE_KEY_V1 = 'finanza_dashboard_v1';
-export const APP_VERSION = 2;
+export const APP_VERSION = 3;
 
 export const SUPPORTED_CURRENCIES = {
   COP: { code: 'COP', symbol: '$', name: 'Peso Colombiano (COP)', locale: 'es-CO', decimals: 0 },

@@ -42,7 +42,7 @@ export class CategoriesView {
     }
 
     grid.innerHTML = categories.map(c => {
-      const txs = store.transactions.filter(t => t.categoryId === c.id);
+      const txs = (store.transactions || []).filter(t => !t.deletedAt && t.categoryId === c.id);
       const totalAmount = txs.reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
       return `

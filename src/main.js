@@ -38,9 +38,12 @@ class App {
     this.pendingCSVTransactions = null;
   }
 
-  init() {
+  async init() {
     Toast.init();
     Modal.init();
+
+    // Hidratar almacén central de forma asíncrona desde IndexedDB
+    await store.init();
 
     // Sincronizar tema visual guardado
     document.body.classList.toggle('dark', store.theme === 'dark');
@@ -322,6 +325,48 @@ class App {
     if (recAccSelect) {
       recAccSelect.innerHTML = accounts.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
     }
+
+    this.refreshPocketSelect();
+  }
+
+  refreshPocketSelect() {
+    const accSelect = document.getElementById('transactionAccount');
+    const pocketSelect = document.getElementById('transactionPocket');
+    const pocketWrap = document.getElementById('transactionPocketWrap');
+    const txType = document.getElementById('transactionType')?.value || 'expense';
+
+    if (!pocketSelect) return;
+
+    if (txType !== 'expense') {
+      if (pocketWrap) pocketWrap.style.display = 'none';
+      pocketSelect.value = '';
+      return;
+    }
+
+    if (pocketWrap) pocketWrap.style.display = 'block';
+
+    const accountId = accSelect?.value;
+    if (!accountId) {
+      pocketSelect.innerHTML = '<option value="">Saldo Disponible (General)</option>';
+      return;
+    }
+
+    const balances = accountService.calculateBalances(accountId);
+    let html = `<option value="">Saldo Disponible (General: ${currencyService.format(balances.availableBalance)})</option>`;
+
+    if (balances.pockets && balances.pockets.length > 0) {
+      html += `<optgroup label="Alcancías de esta cuenta">`;
+      balances.pockets.forEach(p => {
+        html += `<option value="${p.id}">${p.name} (Saldo: ${currencyService.format(p.currentBalance)})</option>`;
+      });
+      html += `</optgroup>`;
+    }
+
+    const prevPocket = pocketSelect.value;
+    pocketSelect.innerHTML = html;
+    if (prevPocket && balances.pockets.some(p => p.id === prevPocket)) {
+      pocketSelect.value = prevPocket;
+    }
   }
 
   // --- Modales y Formularios ---
@@ -350,7 +395,7 @@ class App {
     const methodInput = document.getElementById('transactionMethod');
 
     if (titleInput) titleInput.value = transaction?.title || '';
-    if (amountInput) amountInput.value = transaction?.amount || '';
+    if (amountInput) amountInput.value = transaction ? currencyService.fromCents(transaction.amount) : '';
     if (dateInput) dateInput.value = transaction?.date || new Date().toISOString().slice(0, 10);
     if (noteInput) noteInput.value = transaction?.note || '';
     if (methodInput) methodInput.value = transaction?.method || '';
@@ -362,6 +407,11 @@ class App {
     if (transaction) {
       if (catSelect) catSelect.value = transaction.categoryId;
       if (accSelect) accSelect.value = transaction.accountId;
+      this.refreshPocketSelect();
+      const pocketSelect = document.getElementById('transactionPocket');
+      if (pocketSelect && transaction.pocketId) {
+        pocketSelect.value = transaction.pocketId;
+      }
     }
 
     const submitBtn = document.querySelector('#transactionForm button[type=submit]');
@@ -392,11 +442,66 @@ class App {
     if (idInput) idInput.value = account?.id || '';
     if (nameInput) nameInput.value = account?.name || '';
     if (typeInput) typeInput.value = account?.type || 'bank';
-    if (balanceInput) balanceInput.value = account?.initialBalance || 0;
+    if (balanceInput) balanceInput.value = account ? currencyService.fromCents(account.initialBalance || 0) : 0;
     if (colorInput) colorInput.value = account?.color || '#18181b';
     if (iconInput) iconInput.value = getMaterialIconName(account?.icon, 'account_balance');
 
     Modal.open('#accountModal');
+  }
+
+  openPocketModal(accountId, pocket = null) {
+    this.editingPocketId = pocket?.id || null;
+    const form = document.getElementById('pocketForm');
+    if (form) form.reset();
+
+    const accIdInput = document.getElementById('pocketAccountId');
+    const pockIdInput = document.getElementById('editingPocketId');
+    if (accIdInput) accIdInput.value = accountId;
+    if (pockIdInput) pockIdInput.value = pocket?.id || '';
+
+    const title = document.getElementById('pocketModalTitle');
+    if (title) title.textContent = pocket ? 'Editar alcancía' : 'Nueva alcancía';
+
+    const nameInput = document.getElementById('pocketName');
+    const targetInput = document.getElementById('pocketTargetAmount');
+    const colorInput = document.getElementById('pocketColor');
+    const iconInput = document.getElementById('pocketIcon');
+
+    if (nameInput) nameInput.value = pocket?.name || '';
+    if (targetInput) targetInput.value = pocket?.targetAmount ? currencyService.fromCents(pocket.targetAmount) : '';
+    if (colorInput) colorInput.value = pocket?.color || '#3f3f46';
+    if (iconInput) iconInput.value = pocket?.icon || 'savings';
+
+    Modal.open('#pocketModal');
+  }
+
+  openPocketActionModal(accountId, pocketId, pocketName, mode = 'deposit') {
+    const form = document.getElementById('pocketActionForm');
+    if (form) form.reset();
+
+    const accIdInput = document.getElementById('pocketActionAccountId');
+    const pockIdInput = document.getElementById('pocketActionPocketId');
+    const modeInput = document.getElementById('pocketActionMode');
+
+    if (accIdInput) accIdInput.value = accountId;
+    if (pockIdInput) pockIdInput.value = pocketId;
+    if (modeInput) modeInput.value = mode;
+
+    const titleEl = document.getElementById('pocketActionModalTitle');
+    const subtitleEl = document.getElementById('pocketActionSubtitle');
+    const submitBtn = document.getElementById('pocketActionSubmitBtn');
+
+    if (mode === 'deposit') {
+      if (titleEl) titleEl.textContent = `Meter dinero a "${pocketName}"`;
+      if (subtitleEl) subtitleEl.textContent = 'Mueve dinero desde tu saldo disponible hacia esta alcancía de ahorro.';
+      if (submitBtn) submitBtn.textContent = 'Asignar a alcancía';
+    } else {
+      if (titleEl) titleEl.textContent = `Sacar dinero de "${pocketName}"`;
+      if (subtitleEl) subtitleEl.textContent = 'Retira dinero desde esta alcancía hacia tu saldo disponible.';
+      if (submitBtn) submitBtn.textContent = 'Retirar a disponible';
+    }
+
+    Modal.open('#pocketActionModal');
   }
 
   openTransferModal() {
@@ -582,6 +687,9 @@ class App {
       });
     });
 
+    // 6. Selector de cuenta en modal: refrescar alcancías dinámicamente
+    document.getElementById('transactionAccount')?.addEventListener('change', () => this.refreshPocketSelect());
+
     // 7. Envíos de Formularios
     document.getElementById('transactionForm')?.addEventListener('submit', e => {
       e.preventDefault();
@@ -591,6 +699,7 @@ class App {
       const date = document.getElementById('transactionDate').value;
       const categoryId = document.getElementById('transactionCategory').value;
       const accountId = document.getElementById('transactionAccount').value;
+      const pocketId = document.getElementById('transactionPocket')?.value || null;
       const method = document.getElementById('transactionMethod').value;
       const note = document.getElementById('transactionNote').value;
 
@@ -602,6 +711,7 @@ class App {
         date,
         categoryId,
         accountId,
+        pocketId,
         method,
         note
       });
@@ -610,6 +720,57 @@ class App {
         Toast.success(this.editingTransactionId ? 'Movimiento actualizado.' : 'Movimiento registrado con éxito.');
         Modal.closeAll();
         this.selectedMonth = date.slice(0, 7);
+        this.renderAll();
+      } else {
+        Toast.error(result.error);
+      }
+    });
+
+    // Formulario de creación/edición de alcancía
+    document.getElementById('pocketForm')?.addEventListener('submit', e => {
+      e.preventDefault();
+      const accountId = document.getElementById('pocketAccountId').value;
+      const pocketId = document.getElementById('editingPocketId').value;
+      const name = document.getElementById('pocketName').value;
+      const targetAmount = document.getElementById('pocketTargetAmount').value;
+      const color = document.getElementById('pocketColor').value;
+      const icon = document.getElementById('pocketIcon').value;
+
+      let result;
+      if (pocketId) {
+        result = accountService.updatePocket(accountId, pocketId, { name, targetAmount, color, icon });
+      } else {
+        result = accountService.createPocket(accountId, { name, targetAmount, color, icon });
+      }
+
+      if (result.success) {
+        Toast.success(pocketId ? 'Alcancía actualizada.' : 'Alcancía creada con éxito.');
+        Modal.closeAll();
+        this.renderAll();
+      } else {
+        Toast.error(result.error);
+      }
+    });
+
+    // Formulario de movimientos internos de alcancía (Meter / Sacar)
+    document.getElementById('pocketActionForm')?.addEventListener('submit', e => {
+      e.preventDefault();
+      const accountId = document.getElementById('pocketActionAccountId').value;
+      const pocketId = document.getElementById('pocketActionPocketId').value;
+      const mode = document.getElementById('pocketActionMode').value;
+      const amount = document.getElementById('pocketActionAmount').value;
+      const note = document.getElementById('pocketActionNote').value;
+
+      let result;
+      if (mode === 'deposit') {
+        result = accountService.depositToPocket(accountId, pocketId, amount, note);
+      } else {
+        result = accountService.withdrawFromPocket(accountId, pocketId, amount, note);
+      }
+
+      if (result.success) {
+        Toast.success(mode === 'deposit' ? 'Fondos asignados a la alcancía.' : 'Fondos retirados al saldo disponible.');
+        Modal.closeAll();
         this.renderAll();
       } else {
         Toast.error(result.error);
@@ -928,6 +1089,52 @@ class App {
             const res = accountService.deleteAccount(id);
             if (res.success) {
               Toast.success('Cuenta eliminada.');
+              this.refreshSelects();
+              this.renderAll();
+            } else {
+              Toast.error(res.error);
+            }
+          }
+        );
+        return;
+      }
+
+      // Alcancías (Pockets)
+      const addPocketBtn = e.target.closest('[data-add-pocket]');
+      if (addPocketBtn) {
+        const accountId = addPocketBtn.dataset.addPocket;
+        this.openPocketModal(accountId);
+        return;
+      }
+
+      const depositPocketBtn = e.target.closest('[data-pocket-deposit]');
+      if (depositPocketBtn) {
+        const [accId, pockId, pockName] = depositPocketBtn.dataset.pocketDeposit.split(':');
+        this.openPocketActionModal(accId, pockId, pockName || 'Alcancía', 'deposit');
+        return;
+      }
+
+      const withdrawPocketBtn = e.target.closest('[data-pocket-withdraw]');
+      if (withdrawPocketBtn) {
+        const [accId, pockId, pockName] = withdrawPocketBtn.dataset.pocketWithdraw.split(':');
+        this.openPocketActionModal(accId, pockId, pockName || 'Alcancía', 'withdraw');
+        return;
+      }
+
+      const delPocketBtn = e.target.closest('[data-delete-pocket]');
+      if (delPocketBtn) {
+        const [accId, pockId] = delPocketBtn.dataset.deletePocket.split(':');
+        Modal.confirm(
+          '¿Eliminar alcancía?',
+          'Se eliminará este bolsillo de ahorro. Si contiene saldo, se transferirá automáticamente a tu saldo disponible.',
+          () => {
+            const res = accountService.deletePocket(accId, pockId);
+            if (res.success) {
+              if (res.releasedBalance > 0) {
+                Toast.success(`Alcancía eliminada. Se reintegraron ${currencyService.format(res.releasedBalance)} a tu saldo disponible.`);
+              } else {
+                Toast.success('Alcancía eliminada.');
+              }
               this.refreshSelects();
               this.renderAll();
             } else {

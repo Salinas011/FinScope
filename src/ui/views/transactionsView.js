@@ -73,6 +73,9 @@ export class TransactionsView {
       const amountColor = isIncome ? 'income-amount' : isTransfer ? 'transfer-amount' : '';
       const sign = isIncome ? '+' : isTransfer ? '⇄' : '−';
 
+      const pocket = t.pocketId ? (acc.pockets || []).find(p => p.id === t.pocketId) : null;
+      const pocketLabel = pocket ? ` · [Alcancía: ${this.escape(pocket.name)}]` : '';
+
       return `
         <tr>
           <td>
@@ -82,7 +85,7 @@ export class TransactionsView {
               </span>
               <span>
                 <strong title="${this.escape(t.title)}">${this.escape(t.title)}</strong>
-                <small>${this.escape(acc.name)} · ${this.escape(t.method || 'Sin método')}</small>
+                <small>${this.escape(acc.name)}${pocketLabel} · ${this.escape(t.method || 'Sin método')}</small>
               </span>
             </div>
           </td>

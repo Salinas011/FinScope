@@ -1,5 +1,7 @@
 /**
- * Vista de Cuentas y Billeteras con cálculo de saldo en tiempo real y transferencias internas.
+ * src/ui/views/accountsView.js
+ * Vista de Cuentas y Billeteras v3 con soporte integral para Alcancías (Pockets),
+ * barras de progreso hacia metas de ahorro, saldos disponibles vs. totales y acciones rápidas.
  */
 import { accountService } from '../../services/accountService.js';
 import { currencyService } from '../../services/currencyService.js';
@@ -16,6 +18,7 @@ export class AccountsView {
     const accounts = accountService.getAccountsWithBalances();
     const netWorth = accountService.getNetWorth();
 
+    // Actualizar KPIs de cabecera
     const netWorthEl = document.getElementById('accountNetWorth');
     if (netWorthEl) {
       netWorthEl.textContent = currencyService.format(netWorth);
@@ -46,6 +49,58 @@ export class AccountsView {
 
     grid.innerHTML = accounts.map(a => {
       const isNegative = a.currentBalance < 0;
+      const pockets = a.calculatedPockets || [];
+      const totalInPockets = a.currentBalance - a.availableBalance;
+
+      // Render de alcancías anidadas
+      const pocketsHtml = pockets.length === 0
+        ? `<div class="pocket-empty-hint">
+             <span>Sin alcancías activas. Aparta dinero de tu saldo disponible creando una alcancía.</span>
+           </div>`
+        : `<div class="pockets-list">
+            ${pockets.map(p => {
+              const hasTarget = Number(p.targetAmount) > 0;
+              return `
+                <div class="pocket-card">
+                  <div class="pocket-head">
+                    <div class="pocket-info">
+                      <span class="pocket-icon" style="background:${p.color || '#3f3f46'}1c;color:${p.color || '#3f3f46'}">
+                        ${iconHtml(p.icon || 'savings', 'savings')}
+                      </span>
+                      <div>
+                        <strong class="pocket-name">${this.escape(p.name)}</strong>
+                        <div class="pocket-balance">${currencyService.format(p.currentBalance)}</div>
+                      </div>
+                    </div>
+                    <div class="pocket-actions">
+                      <button class="pocket-btn" title="Meter dinero a esta alcancía" data-pocket-deposit="${a.id}:${p.id}:${this.escape(p.name)}">
+                        <span class="material-symbols-rounded">add</span> Meter
+                      </button>
+                      <button class="pocket-btn" title="Sacar dinero de esta alcancía" data-pocket-withdraw="${a.id}:${p.id}:${this.escape(p.name)}">
+                        <span class="material-symbols-rounded">remove</span> Sacar
+                      </button>
+                      <button class="pocket-btn danger-icon" title="Eliminar alcancía" data-delete-pocket="${a.id}:${p.id}">
+                        <span class="material-symbols-rounded">delete</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  ${hasTarget ? `
+                    <div class="pocket-progress-wrap">
+                      <div class="pocket-progress-meta">
+                        <span>Meta: ${currencyService.format(p.targetAmount)}</span>
+                        <strong>${p.progressPercent}%</strong>
+                      </div>
+                      <div class="pocket-progress-bar">
+                        <div class="pocket-progress-fill" style="width: ${p.progressPercent}%; background: ${p.color || '#3f3f46'}"></div>
+                      </div>
+                    </div>
+                  ` : ''}
+                </div>
+              `;
+            }).join('')}
+          </div>`;
+
       return `
         <article class="account-card" style="border-top: 4px solid ${a.color}">
           <div class="account-card-head">
@@ -67,13 +122,34 @@ export class AccountsView {
           </div>
 
           <div class="account-card-body">
-            <div class="account-balance-label">Saldo disponible</div>
-            <div class="account-balance ${isNegative ? 'negative-balance' : ''}">
-              ${currencyService.format(a.currentBalance)}
+            <div class="account-balance-group">
+              <div class="account-balance-label">Saldo total de la cuenta</div>
+              <div class="account-balance ${isNegative ? 'negative-balance' : ''}">
+                ${currencyService.format(a.currentBalance)}
+              </div>
             </div>
-            <div class="account-initial">
-              Balance inicial: ${currencyService.format(a.initialBalance || 0)}
+
+            <div class="account-sub-balances">
+              <div class="sub-balance-item">
+                <span class="sub-balance-label">Disponible:</span>
+                <strong class="sub-balance-value">${currencyService.format(a.availableBalance)}</strong>
+              </div>
+              <div class="sub-balance-item">
+                <span class="sub-balance-label">En alcancías:</span>
+                <strong class="sub-balance-value">${currencyService.format(totalInPockets)}</strong>
+              </div>
             </div>
+          </div>
+
+          <!-- SECCIÓN DE ALCANCÍAS ANIDADAS -->
+          <div class="pockets-container">
+            <div class="pockets-header">
+              <span>Alcancías (${pockets.length})</span>
+              <button class="btn-add-pocket" data-add-pocket="${a.id}">
+                <span class="material-symbols-rounded">add</span> Nueva alcancía
+              </button>
+            </div>
+            ${pocketsHtml}
           </div>
         </article>
       `;

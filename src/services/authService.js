@@ -3,7 +3,9 @@
  * Servicio de Autenticación con Google Identity Services (GIS).
  */
 
-export const GOOGLE_CLIENT_ID = '897612074532-o6vrakogt8oqf9fem4qmefelafi5tm4d.apps.googleusercontent.com';
+export const GOOGLE_CLIENT_ID =
+  import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+  '897612074532-o6vrakogt8oqf9fem4qmefelafi5tm4d.apps.googleusercontent.com';
 
 const AUTH_STORAGE_KEY = 'finanza_auth_user';
 

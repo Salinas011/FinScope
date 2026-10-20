@@ -91,6 +91,7 @@ export class DashboardView {
     if (!tbody) return;
 
     const rows = [...transactions]
+      .filter(t => !t.deletedAt && t.type !== 'pocket_deposit' && t.type !== 'pocket_withdraw')
       .sort((a, b) => (b.date || '').localeCompare(a.date || '') || Number(b.createdAt || 0) - Number(a.createdAt || 0))
       .slice(0, 5);
 

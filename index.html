@@ -581,6 +581,15 @@
           </div>
         </div>
 
+        <div class="form-row" id="transactionPocketWrap">
+          <div class="field-group">
+            <label class="field-label" for="transactionPocket">Origen de Fondos (Disponible vs. Alcancía)</label>
+            <select class="field-input" id="transactionPocket">
+              <option value="">Saldo Disponible (General)</option>
+            </select>
+          </div>
+        </div>
+
         <div class="form-row">
           <div class="field-group">
             <label class="field-label" for="transactionMethod">Medio de pago</label>
@@ -672,6 +681,106 @@
         <div class="form-footer">
           <button type="button" class="outline-button" data-close-modal>Cancelar</button>
           <button type="submit" class="primary-button">Guardar cuenta</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Alcancía / Bolsillo de Ahorro -->
+  <div class="modal-backdrop hidden" id="pocketModal" role="dialog" aria-modal="true" aria-labelledby="pocketModalTitle">
+    <div class="modal-card compact-modal">
+      <div class="modal-header">
+        <div>
+          <div class="eyebrow">BOLSILLO DE AHORRO</div>
+          <h2 id="pocketModalTitle">Nueva alcancía</h2>
+          <p class="muted">Aparta fondos de tu saldo disponible para metas o gastos específicos.</p>
+        </div>
+        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar">
+          <span class="material-symbols-rounded">close</span>
+        </button>
+      </div>
+      <form id="pocketForm">
+        <input type="hidden" id="pocketAccountId"/>
+        <input type="hidden" id="editingPocketId"/>
+
+        <label class="field-label" for="pocketName">Nombre de la alcancía *</label>
+        <input class="field-input" id="pocketName" maxlength="40" placeholder="Ej. Vacaciones, Fondo de Emergencia, Seguros" required/>
+
+        <div class="form-row">
+          <div class="field-group">
+            <label class="field-label" for="pocketTargetAmount">Meta de ahorro <span class="optional-label">OPCIONAL</span></label>
+            <div class="amount-input-wrap">
+              <span>$</span>
+              <input class="field-input amount-input" id="pocketTargetAmount" type="number" step="any" placeholder="0" />
+            </div>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="pocketColor">Color distintivo</label>
+            <select class="field-input" id="pocketColor">
+              <option value="#3f3f46">Grafito</option>
+              <option value="#18181b">Carbón</option>
+              <option value="#52525b">Pizarra</option>
+              <option value="#64748b">Acero</option>
+              <option value="#71717a">Zinc</option>
+              <option value="#78716c">Piedra</option>
+              <option value="#a1a1aa">Plata</option>
+            </select>
+          </div>
+        </div>
+
+        <label class="field-label" for="pocketIcon">Ícono</label>
+        <select class="field-input" id="pocketIcon">
+          <option value="savings">Alcancía / Cochinito</option>
+          <option value="flight">Viajes / Vacaciones</option>
+          <option value="emergency">Fondo Emergencia</option>
+          <option value="home">Hogar / Muebles</option>
+          <option value="directions_car">Vehículo / Mantenimiento</option>
+          <option value="school">Educación / Estudio</option>
+          <option value="diamond">Inversiones / Patrimonio</option>
+          <option value="shopping_bag">Compras / Deseos</option>
+          <option value="pets">Mascota</option>
+        </select>
+
+        <div class="form-footer">
+          <button type="button" class="outline-button" data-close-modal>Cancelar</button>
+          <button type="submit" class="primary-button">Guardar alcancía</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Operación con Alcancía (Meter / Sacar) -->
+  <div class="modal-backdrop hidden" id="pocketActionModal" role="dialog" aria-modal="true" aria-labelledby="pocketActionModalTitle">
+    <div class="modal-card compact-modal">
+      <div class="modal-header">
+        <div>
+          <div class="eyebrow" id="pocketActionEyebrow">MOVIMIENTO INTERNO</div>
+          <h2 id="pocketActionModalTitle">Meter dinero a la alcancía</h2>
+          <p class="muted" id="pocketActionSubtitle">Mueve fondos entre el saldo disponible y la alcancía sin alterar tus gastos.</p>
+        </div>
+        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar">
+          <span class="material-symbols-rounded">close</span>
+        </button>
+      </div>
+      <form id="pocketActionForm">
+        <input type="hidden" id="pocketActionAccountId"/>
+        <input type="hidden" id="pocketActionPocketId"/>
+        <input type="hidden" id="pocketActionMode" value="deposit"/>
+
+        <div class="field-group">
+          <label class="field-label" for="pocketActionAmount">Monto a mover *</label>
+          <div class="amount-input-wrap">
+            <span>$</span>
+            <input class="field-input amount-input" id="pocketActionAmount" type="number" min="1" step="any" placeholder="0" required />
+          </div>
+        </div>
+
+        <label class="field-label" for="pocketActionNote">Nota <span class="optional-label">OPCIONAL</span></label>
+        <input class="field-input" id="pocketActionNote" maxlength="80" placeholder="Motivo o detalle..."/>
+
+        <div class="form-footer">
+          <button type="button" class="outline-button" data-close-modal>Cancelar</button>
+          <button type="submit" class="primary-button" id="pocketActionSubmitBtn">Confirmar movimiento</button>
         </div>
       </form>
     </div>
