@@ -12,6 +12,7 @@ import { categoryService } from './services/categoryService.js';
 import { budgetService } from './services/budgetService.js';
 import { recurringService } from './services/recurringService.js';
 import { dataTransferService } from './services/dataTransferService.js';
+import { authService } from './services/authService.js';
 
 import { Toast } from './ui/toast.js';
 import { Modal } from './ui/modal.js';
@@ -74,7 +75,60 @@ class App {
       Toast.error(err);
     });
 
+    // Suscribirse a cambios en el estado de autenticación de Google
+    let hasInitializedAuth = false;
+    authService.subscribe(user => {
+      this.renderAuthUI(user);
+      if (hasInitializedAuth && user) {
+        Toast.success(`¡Bienvenido, ${user.givenName || user.name || 'Usuario'}!`);
+      }
+      hasInitializedAuth = true;
+    });
+
     console.log('Finanza v2 iniciado exitosamente.');
+  }
+
+  renderAuthUI(user) {
+    const container = document.getElementById('authProfileContainer');
+    if (!container) return;
+
+    if (!user) {
+      // Estado de Invitado: Mostrar botón oficial de Google
+      container.innerHTML = `
+        <div class="login-wrapper">
+          <div id="googleBtnContainer"></div>
+          <span class="login-hint">Inicia sesión con Google</span>
+        </div>
+      `;
+      authService.initGoogleAuth('googleBtnContainer');
+    } else {
+      // Estado Autenticado: Mostrar perfil del usuario y botón de logout
+      const firstLetter = (user.name || 'U').charAt(0).toUpperCase();
+      container.innerHTML = `
+        <div class="profile-row user-logged">
+          <img 
+            class="avatar-img" 
+            src="${user.picture || ''}" 
+            alt="${user.name || 'Usuario'}" 
+            referrerpolicy="no-referrer"
+            onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='grid';" 
+          />
+          <div class="avatar" style="display: none;">${firstLetter}</div>
+          <div class="user-meta">
+            <strong title="${user.name}">${user.name}</strong>
+            <small title="${user.email}">${user.email}</small>
+          </div>
+          <button class="logout-btn" id="btnLogoutGoogle" title="Cerrar sesión" aria-label="Cerrar sesión de Google">
+            <span class="material-symbols-rounded">logout</span>
+          </button>
+        </div>
+      `;
+
+      document.getElementById('btnLogoutGoogle')?.addEventListener('click', () => {
+        authService.signOut();
+        Toast.info('Has cerrado sesión correctamente.');
+      });
+    }
   }
 
   setView(viewName) {
@@ -456,6 +510,9 @@ class App {
       const themeIcon = document.getElementById('themeIcon');
       if (themeIcon) {
         themeIcon.textContent = newTheme === 'dark' ? 'light_mode' : 'dark_mode';
+      }
+      if (!authService.isAuthenticated()) {
+        authService.initGoogleAuth('googleBtnContainer');
       }
       this.renderActiveView();
     });

@@ -403,6 +403,91 @@ button:disabled {
   box-shadow: 0 0 0 3px rgba(82, 82, 91, 0.15);
 }
 
+/* --- Autenticación Google en Sidebar --- */
+.auth-profile-container {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.auth-profile-container .profile-row {
+  border-top: 0;
+  padding: 0 6px;
+}
+
+.avatar-img {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.user-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.user-meta strong {
+  display: block;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-meta small {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logout-btn {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: var(--transition);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.logout-btn:hover {
+  background: var(--surface-2);
+  color: #ef4444;
+  border-color: var(--line);
+}
+
+.logout-btn .material-symbols-rounded {
+  font-size: 16px;
+}
+
+.login-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.login-hint {
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+}
+
+#googleBtnContainer {
+  display: flex;
+  justify-content: center;
+  min-height: 40px;
+}
+
 /* --- Topbar & Contenido --- */
 .main-content {
   margin-left: var(--sidebar);
