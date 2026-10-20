@@ -15,18 +15,34 @@ import { store } from '../core/store.js';
 import { eventBus } from '../core/eventBus.js';
 
 export const firebaseConfig = {
-  apiKey: "AIzaSyAf5VBLhCi1qSFGwpJYw4kT-N_uRSOMO44",
-  authDomain: "finscope-7c0a8.firebaseapp.com",
-  projectId: "finscope-7c0a8",
-  storageBucket: "finscope-7c0a8.firebasestorage.app",
-  messagingSenderId: "1033760580508",
-  appId: "1:1033760580508:web:c3e229a578fa8c8c195e59",
-  measurementId: "G-T1S3BY10DM"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
+// Validar que las variables mínimas requeridas estén presentes
+const isFirebaseConfigured = Boolean(
+  firebaseConfig.apiKey && 
+  firebaseConfig.projectId
+);
+
+if (!isFirebaseConfigured) {
+  console.warn(
+    '[FinScope] Firebase no está configurado o faltan variables de entorno (VITE_FIREBASE_*). ' +
+    'Revisa tu archivo .env basado en .env.example. La aplicación continuará en modo local.'
+  );
+}
+
 // Inicializar Firebase evitando duplicaciones
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+const app = isFirebaseConfigured
+  ? (getApps().length > 0 ? getApp() : initializeApp(firebaseConfig))
+  : null;
+
+export const db = app ? getFirestore(app) : null;
 
 class FirestoreService {
   constructor() {
@@ -69,6 +85,12 @@ class FirestoreService {
 
     this.currentUserId = user.id;
     this.setSyncStatus('syncing');
+
+    if (!db) {
+      console.warn('Firestore no está inicializado: variables de entorno ausentes. Operando con almacenamiento local.');
+      this.setSyncStatus('disconnected');
+      return;
+    }
 
     try {
       const userDocRef = doc(db, 'users', this.currentUserId);
@@ -134,7 +156,7 @@ class FirestoreService {
    * Guarda inmediatamente o con debounce el estado actual en Firestore.
    */
   async saveCurrentStateDebounced(user) {
-    if (!this.currentUserId || this.isSyncingFromRemote) return;
+    if (!this.currentUserId || !db || this.isSyncingFromRemote) return;
 
     this.setSyncStatus('syncing');
     clearTimeout(this.saveTimeout);
@@ -154,7 +176,7 @@ class FirestoreService {
    * Envía el estado completo a la nube.
    */
   async pushLocalToCloud(user) {
-    if (!this.currentUserId) return;
+    if (!this.currentUserId || !db) return;
     const userDocRef = doc(db, 'users', this.currentUserId);
     const state = store.getState();
 
