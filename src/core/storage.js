@@ -50,6 +50,7 @@ export class StorageService {
       version: APP_VERSION,
       currency: 'COP',
       theme: 'light',
+      isPrivacyMode: false,
       accounts,
       categories,
       transactions: [],
@@ -541,6 +542,44 @@ export class StorageService {
     } catch (err) {
       console.error('[StorageService] Error reseteando base de datos:', err);
       return this.getBlankState();
+    }
+  }
+
+  /**
+   * Elimina por completo la base de datos IndexedDB y limpia claves de sesión local.
+   * Utilizado para protección de privacidad estricta en logout y transición a Guest Mode.
+   * @returns {Promise<void>}
+   */
+  static async deleteDatabase() {
+    try {
+      if (this.dbPromise) {
+        const db = await this.dbPromise;
+        db.close();
+        this.dbPromise = null;
+      }
+
+      if (typeof indexedDB !== 'undefined') {
+        await new Promise((resolve, reject) => {
+          const req = indexedDB.deleteDatabase(DB_NAME);
+          req.onsuccess = () => resolve();
+          req.onerror = () => reject(req.error);
+          req.onblocked = () => {
+            console.warn('[StorageService] Borrado de base de datos bloqueado por conexiones activas.');
+            resolve();
+          };
+        });
+      }
+
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(STORAGE_KEY_V1);
+        localStorage.removeItem(STORAGE_KEY_V2);
+        localStorage.removeItem(STORAGE_KEY_V3);
+        localStorage.removeItem('finscope_last_sync_timestamp');
+      }
+
+      console.log('[StorageService] Base de datos local finscope_db_v3 eliminada por completo.');
+    } catch (err) {
+      console.error('[StorageService] Error eliminando base de datos IndexedDB:', err);
     }
   }
 }

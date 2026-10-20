@@ -1,0 +1,26 @@
+{
+  "name": "FinScope v3.1 — Finanzas Personales",
+  "short_name": "FinScope",
+  "description": "Dashboard de finanzas personales offline-first con IndexedDB, Safe Math, Alcancías y PWA.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#18181b",
+  "theme_color": "#18181b",
+  "categories": ["finance", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

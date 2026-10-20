@@ -91,6 +91,20 @@ class Store {
     return this._state.settings || { dateFormat: 'es-CO', pageSize: 25 };
   }
 
+  get isPrivacyMode() {
+    return !!this._state.isPrivacyMode;
+  }
+
+  /**
+   * Alterna el modo de privacidad para ocultar/mostrar saldos con asteriscos.
+   * @returns {boolean} Nuevo estado
+   */
+  togglePrivacyMode() {
+    const nextVal = !this.isPrivacyMode;
+    this.setState({ isPrivacyMode: nextVal }, 'privacy:toggled');
+    return nextVal;
+  }
+
   /**
    * Actualiza una porción del estado de forma inmutable y persiste en IndexedDB.
    * @param {Object|Function} updater Objeto parcial o función que recibe el estado previo.
@@ -169,6 +183,21 @@ class Store {
     this._notifySubscribers(this._state);
     eventBus.emit('state:reset', this._state);
     eventBus.emit('state:changed', { state: this._state, actionTag: 'state:reset' });
+  }
+
+  /**
+   * Borra por completo la base de datos IndexedDB local por privacidad en el cierre de sesión,
+   * y reestablece un estado en blanco en la memoria sin recargar abruptamente la página.
+   * Si el usuario registra nuevos movimientos deslogueado, se creará una base local nueva (Guest Mode).
+   */
+  async clearForGuestMode() {
+    await StorageService.deleteDatabase();
+    this._state = StorageService.getBlankState();
+    this._isHydrated = true;
+    this._notifySubscribers(this._state);
+    eventBus.emit('state:reset', this._state);
+    eventBus.emit('state:changed', { state: this._state, actionTag: 'auth:guest_mode' });
+    console.log('[Store] Estado local reseteado en memoria para Modo Invitado.');
   }
 }
 

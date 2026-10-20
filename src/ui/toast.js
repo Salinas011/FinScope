@@ -48,15 +48,15 @@ export class Toast {
     }, duration);
   }
 
-  static success(msg) {
-    this.show(msg, 'success');
+  static success(msg, duration = 3200) {
+    this.show(msg, 'success', duration);
   }
 
-  static error(msg) {
-    this.show(msg, 'error', 4200);
+  static error(msg, duration = 4200) {
+    this.show(msg, 'error', duration);
   }
 
-  static info(msg) {
-    this.show(msg, 'info');
+  static info(msg, duration = 3200) {
+    this.show(msg, 'info', duration);
   }
 }

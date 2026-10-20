@@ -140,45 +140,219 @@ class App {
   }
 
   renderAuthUI(user) {
-    const container = document.getElementById('authProfileContainer');
-    if (!container) return;
+    const sidebarContainer = document.getElementById('authProfileContainer');
+    const topbarContainer = document.getElementById('topbarAuthContainer');
+    const modalBody = document.getElementById('userProfileModalBody');
+    const settingsAuthCard = document.getElementById('settingsAuthCard');
 
-    if (!user) {
-      // Estado de Invitado: Mostrar botón oficial de Google
-      container.innerHTML = `
-        <div class="login-wrapper">
-          <div id="googleBtnContainer"></div>
-          <span class="login-hint">Inicia sesión con Google</span>
-        </div>
-      `;
-      authService.initGoogleAuth('googleBtnContainer');
-    } else {
-      // Estado Autenticado: Mostrar perfil del usuario y botón de logout
-      const firstLetter = (user.name || 'U').charAt(0).toUpperCase();
-      container.innerHTML = `
-        <div class="profile-row user-logged">
-          <img 
-            class="avatar-img" 
-            src="${user.picture || ''}" 
-            alt="${user.name || 'Usuario'}" 
-            referrerpolicy="no-referrer"
-            onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='grid';" 
-          />
-          <div class="avatar" style="display: none;">${firstLetter}</div>
-          <div class="user-meta">
-            <strong title="${user.name}">${user.name}</strong>
-            <small title="${user.email}">${user.email}</small>
-          </div>
-          <button class="logout-btn" id="btnLogoutGoogle" title="Cerrar sesión" aria-label="Cerrar sesión de Google">
-            <span class="material-symbols-rounded">logout</span>
+    const firstLetter = (user?.name || 'U').charAt(0).toUpperCase();
+
+    // 1. Botón / Avatar en la barra superior (Topbar)
+    if (topbarContainer) {
+      if (!user) {
+        topbarContainer.innerHTML = `
+          <button class="topbar-user-pill guest" id="btnOpenAuthModal" aria-label="Iniciar sesión con Google" title="Modo Invitado · Toca para acceder con Google">
+            <span class="material-symbols-rounded">account_circle</span>
+            <span class="topbar-user-text">Acceder</span>
           </button>
-        </div>
-      `;
+        `;
+      } else {
+        topbarContainer.innerHTML = `
+          <button class="topbar-user-pill logged" id="btnOpenAuthModal" aria-label="Ver perfil de usuario" title="${user.name} · Sincronizado">
+            <img 
+              class="topbar-avatar" 
+              src="${user.picture || ''}" 
+              alt="${user.name || 'Usuario'}" 
+              referrerpolicy="no-referrer"
+              onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='grid';" 
+            />
+            <div class="topbar-initial" style="display: none;">${firstLetter}</div>
+            <span class="topbar-dot" title="Sincronizado"></span>
+          </button>
+        `;
+      }
 
-      document.getElementById('btnLogoutGoogle')?.addEventListener('click', () => {
-        authService.signOut();
-        Toast.info('Has cerrado sesión correctamente.');
+      document.getElementById('btnOpenAuthModal')?.addEventListener('click', () => {
+        Modal.open('#userProfileModal');
+        if (!authService.isAuthenticated()) {
+          setTimeout(() => {
+            authService.initGoogleAuth(['googleBtnModal', 'googleBtnSettings', 'googleBtnContainer']);
+          }, 80);
+        }
       });
+    }
+
+    // 2. Modal de Perfil y Sincronización
+    if (modalBody) {
+      if (!user) {
+        modalBody.innerHTML = `
+          <div class="auth-modal-guest">
+            <div class="auth-modal-icon-wrap">
+              <span class="material-symbols-rounded">cloud_sync</span>
+            </div>
+            <h3>Modo Invitado Activo</h3>
+            <p class="muted" style="font-size: 12px; margin-bottom: 12px;">Tus finanzas se guardan exclusivamente en el almacenamiento local de este dispositivo.</p>
+            <div class="auth-features-list">
+              <div class="auth-feature-item">
+                <span class="material-symbols-rounded">check_circle</span>
+                <span>Sincronización en la nube con Firestore</span>
+              </div>
+              <div class="auth-feature-item">
+                <span class="material-symbols-rounded">check_circle</span>
+                <span>Acceso multidispositivo (PC, Tablet y Móvil)</span>
+              </div>
+              <div class="auth-feature-item">
+                <span class="material-symbols-rounded">check_circle</span>
+                <span>Respaldo automático sin pérdida de datos</span>
+              </div>
+            </div>
+            <div class="auth-google-wrapper">
+              <div id="googleBtnModal"></div>
+              <span class="login-hint" style="font-size: 11px; color: var(--muted); margin-top: 4px;">Inicia sesión con tu cuenta de Google</span>
+            </div>
+            <div class="form-footer" style="margin-top: 18px;">
+              <button type="button" class="outline-button" data-close-modal style="width: 100%;">Cerrar</button>
+            </div>
+          </div>
+        `;
+      } else {
+        modalBody.innerHTML = `
+          <div class="auth-modal-logged">
+            <div class="auth-user-card">
+              <img 
+                class="avatar-img-lg" 
+                src="${user.picture || ''}" 
+                alt="${user.name || 'Usuario'}" 
+                referrerpolicy="no-referrer"
+                onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='grid';" 
+              />
+              <div class="avatar-lg" style="display: none;">${firstLetter}</div>
+              <div class="auth-user-info">
+                <h3 style="font-size: 15px; margin: 0 0 2px;">${user.name}</h3>
+                <p class="muted" style="font-size: 12px; margin: 0;">${user.email}</p>
+              </div>
+            </div>
+            <div class="auth-sync-status-box">
+              <span class="material-symbols-rounded sync-icon-ok">cloud_done</span>
+              <div>
+                <strong>Sincronización en la Nube Activa</strong>
+                <small style="display: block; color: var(--muted); font-size: 11px;">Tus datos están protegidos y sincronizados en tiempo real con Firebase Firestore</small>
+              </div>
+            </div>
+            <div class="form-footer" style="margin-top: 20px;">
+              <button type="button" class="outline-button" data-close-modal>Volver</button>
+              <button type="button" class="danger-button" id="btnLogoutModal"><span class="material-symbols-rounded" style="font-size: 16px;">logout</span> Cerrar sesión</button>
+            </div>
+          </div>
+        `;
+
+        document.getElementById('btnLogoutModal')?.addEventListener('click', async () => {
+          Modal.closeAll();
+          await authService.signOut();
+          this.renderAll();
+          Toast.info('Has cerrado sesión. Base local eliminada y Modo Invitado activado.');
+        });
+      }
+    }
+
+    // 3. Tarjeta en la Vista de Ajustes / Configuración
+    if (settingsAuthCard) {
+      if (!user) {
+        settingsAuthCard.innerHTML = `
+          <div class="settings-card-head">
+            <span class="settings-card-icon"><span class="material-symbols-rounded">account_circle</span></span>
+            <div>
+              <h3>Cuenta y Sesión en la Nube</h3>
+              <p class="muted">Modo Invitado (Almacenamiento Local Privado)</p>
+            </div>
+          </div>
+          <div class="settings-card-body">
+            <p class="settings-help">Actualmente estás usando FinScope en modo local en este dispositivo. Para sincronizar tus cuentas y movimientos en tiempo real con la nube, inicia sesión con Google:</p>
+            <div class="settings-action-row" style="margin-top: 14px;">
+              <div id="googleBtnSettings"></div>
+            </div>
+          </div>
+        `;
+      } else {
+        settingsAuthCard.innerHTML = `
+          <div class="settings-card-head">
+            <span class="settings-card-icon"><span class="material-symbols-rounded">verified_user</span></span>
+            <div>
+              <h3>Cuenta Google Activa</h3>
+              <p class="muted">${user.email}</p>
+            </div>
+          </div>
+          <div class="settings-card-body">
+            <div class="profile-row user-logged" style="padding: 0; background: transparent; border: none; margin-bottom: 12px;">
+              <img 
+                class="avatar-img" 
+                src="${user.picture || ''}" 
+                alt="${user.name || 'Usuario'}" 
+                referrerpolicy="no-referrer"
+                onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='grid';" 
+              />
+              <div class="avatar" style="display: none;">${firstLetter}</div>
+              <div class="user-meta">
+                <strong>${user.name}</strong>
+                <small title="${user.email}">${user.email}</small>
+              </div>
+            </div>
+            <p class="settings-help">Tus datos se sincronizan automáticamente con Firebase Firestore cuando tienes conexión a internet.</p>
+            <div class="settings-action-row" style="margin-top: 14px;">
+              <button class="danger-button" id="btnLogoutSettings"><span class="material-symbols-rounded">logout</span> Cerrar sesión</button>
+            </div>
+          </div>
+        `;
+
+        document.getElementById('btnLogoutSettings')?.addEventListener('click', async () => {
+          await authService.signOut();
+          this.renderAll();
+          Toast.info('Has cerrado sesión. Base local eliminada y Modo Invitado activado.');
+        });
+      }
+    }
+
+    // 4. Barra lateral en escritorio (Sidebar)
+    if (sidebarContainer) {
+      if (!user) {
+        sidebarContainer.innerHTML = `
+          <div class="login-wrapper">
+            <div id="googleBtnContainer"></div>
+            <span class="login-hint">Inicia sesión con Google</span>
+          </div>
+        `;
+      } else {
+        sidebarContainer.innerHTML = `
+          <div class="profile-row user-logged">
+            <img 
+              class="avatar-img" 
+              src="${user.picture || ''}" 
+              alt="${user.name || 'Usuario'}" 
+              referrerpolicy="no-referrer"
+              onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='grid';" 
+            />
+            <div class="avatar" style="display: none;">${firstLetter}</div>
+            <div class="user-meta">
+              <strong title="${user.name}">${user.name}</strong>
+              <small title="${user.email}">${user.email}</small>
+            </div>
+            <button class="logout-btn" id="btnLogoutGoogle" title="Cerrar sesión" aria-label="Cerrar sesión de Google">
+              <span class="material-symbols-rounded">logout</span>
+            </button>
+          </div>
+        `;
+
+        document.getElementById('btnLogoutGoogle')?.addEventListener('click', async () => {
+          await authService.signOut();
+          this.renderAll();
+          Toast.info('Has cerrado sesión. Base local eliminada y Modo Invitado activado.');
+        });
+      }
+    }
+
+    // Inicializar botones de Google en todos los contenedores activos si el usuario es invitado
+    if (!user) {
+      authService.initGoogleAuth(['googleBtnContainer', 'googleBtnModal', 'googleBtnSettings']);
     }
   }
 
@@ -193,6 +367,11 @@ class App {
 
     // Actualizar navegación
     document.querySelectorAll('.nav-item[data-view]').forEach(el => {
+      el.classList.toggle('active', el.dataset.view === viewName);
+    });
+
+    // Actualizar barra de navegación inferior móvil
+    document.querySelectorAll('.bottom-nav-item[data-view]').forEach(el => {
       el.classList.toggle('active', el.dataset.view === viewName);
     });
 
@@ -491,9 +670,16 @@ class App {
     const subtitleEl = document.getElementById('pocketActionSubtitle');
     const submitBtn = document.getElementById('pocketActionSubmitBtn');
 
+    const fundingGroup = document.getElementById('pocketFundingSourceGroup');
+    if (fundingGroup) {
+      fundingGroup.style.display = mode === 'deposit' ? 'block' : 'none';
+      const defaultRadio = document.querySelector('input[name="pocketFundingSource"][value="available"]');
+      if (defaultRadio) defaultRadio.checked = true;
+    }
+
     if (mode === 'deposit') {
       if (titleEl) titleEl.textContent = `Meter dinero a "${pocketName}"`;
-      if (subtitleEl) subtitleEl.textContent = 'Mueve dinero desde tu saldo disponible hacia esta alcancía de ahorro.';
+      if (subtitleEl) subtitleEl.textContent = 'Mueve dinero desde tu disponible o añade fondeo inicial a esta alcancía.';
       if (submitBtn) submitBtn.textContent = 'Asignar a alcancía';
     } else {
       if (titleEl) titleEl.textContent = `Sacar dinero de "${pocketName}"`;
@@ -600,8 +786,8 @@ class App {
       document.getElementById('sidebarBackdrop')?.classList.remove('active');
     };
 
-    // 1. Navegación principal
-    document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
+    // 1. Navegación principal (Sidebar y Bottom Nav)
+    document.querySelectorAll('.nav-item[data-view], .bottom-nav-item[data-view]').forEach(btn => {
       btn.addEventListener('click', () => {
         this.setView(btn.dataset.view);
         if (window.innerWidth <= 950) closeMobileSidebar();
@@ -665,13 +851,36 @@ class App {
         themeIcon.textContent = newTheme === 'dark' ? 'light_mode' : 'dark_mode';
       }
       if (!authService.isAuthenticated()) {
-        authService.initGoogleAuth('googleBtnContainer');
+        authService.initGoogleAuth(['googleBtnContainer', 'googleBtnModal', 'googleBtnSettings']);
       }
       this.renderActiveView();
     });
 
-    // 5. Botón agregar movimiento en topbar y llamadas rápidas
+    // Epic 4: Modo Privacidad (Ocultar / Mostrar montos con asteriscos)
+    const updatePrivacyUI = (isActive) => {
+      const icon = document.getElementById('privacyIcon');
+      const btn = document.getElementById('privacyToggle');
+      if (icon) {
+        icon.textContent = isActive ? 'visibility_off' : 'visibility';
+      }
+      if (btn) {
+        btn.classList.toggle('active', isActive);
+        btn.title = isActive ? 'Modo privacidad activo (Mostrar saldos)' : 'Ocultar saldos';
+      }
+    };
+
+    updatePrivacyUI(store.isPrivacyMode);
+
+    document.getElementById('privacyToggle')?.addEventListener('click', () => {
+      const isPrivate = store.togglePrivacyMode();
+      updatePrivacyUI(isPrivate);
+      this.renderAll();
+      Toast.info(isPrivate ? 'Modo privacidad activado. Saldos ocultos.' : 'Modo privacidad desactivado.');
+    });
+
+    // 5. Botón agregar movimiento en topbar, llamadas rápidas y FAB móvil
     document.getElementById('topAdd')?.addEventListener('click', () => this.openTransactionModal());
+    document.getElementById('mobileFab')?.addEventListener('click', () => this.openTransactionModal());
     document.querySelectorAll('[data-open-add]').forEach(btn => {
       btn.addEventListener('click', () => this.openTransactionModal());
     });
@@ -760,16 +969,21 @@ class App {
       const mode = document.getElementById('pocketActionMode').value;
       const amount = document.getElementById('pocketActionAmount').value;
       const note = document.getElementById('pocketActionNote').value;
+      const fundingSource = document.querySelector('input[name="pocketFundingSource"]:checked')?.value || 'available';
+      const isExternal = mode === 'deposit' && fundingSource === 'external';
 
       let result;
       if (mode === 'deposit') {
-        result = accountService.depositToPocket(accountId, pocketId, amount, note);
+        result = accountService.depositToPocket(accountId, pocketId, amount, note, isExternal);
       } else {
         result = accountService.withdrawFromPocket(accountId, pocketId, amount, note);
       }
 
       if (result.success) {
-        Toast.success(mode === 'deposit' ? 'Fondos asignados a la alcancía.' : 'Fondos retirados al saldo disponible.');
+        const successMsg = mode === 'deposit'
+          ? (isExternal ? 'Fondeo inicial externo registrado exitosamente.' : 'Fondos asignados a la alcancía.')
+          : 'Fondos retirados al saldo disponible.';
+        Toast.success(successMsg);
         Modal.closeAll();
         this.renderAll();
       } else {
@@ -1267,12 +1481,99 @@ class App {
   }
 }
 
+// ==========================================================================
+// EPIC 5: PWA CORE — Service Worker Nativo & Instalación Multiplataforma (iOS & Android)
+// ==========================================================================
+let deferredInstallPrompt = null;
+
+// Helpers de detección para dispositivos Apple (iOS / iPadOS) y modo Standalone
+const isIos = () => /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
+const isInStandaloneMode = () => ('standalone' in window.navigator) && window.navigator.standalone;
+
+function setupPWA() {
+  const installBtn = document.getElementById('btnInstallPwa');
+
+  // 1. En iOS Safari, beforeinstallprompt no existe. Si no está instalada, mostramos el botón directamente
+  if (isIos() && !isInStandaloneMode()) {
+    if (installBtn) {
+      installBtn.style.display = 'inline-flex';
+    }
+  }
+
+  // 2. Registro del Service Worker
+  if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js')
+        .then(reg => {
+          console.log('[PWA] Service Worker registrado exitosamente con alcance:', reg.scope);
+        })
+        .catch(err => {
+          console.warn('[PWA] No se pudo registrar el Service Worker:', err);
+        });
+    });
+  }
+
+  // 3. Captura del evento beforeinstallprompt para Android / Chrome / Edge / Desktop
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    console.log('[PWA] Evento beforeinstallprompt capturado. Listo para instalación.');
+
+    if (installBtn) {
+      installBtn.style.display = 'inline-flex';
+    }
+  });
+
+  // 4. Manejador de click en el botón de instalación (soporte para iOS y Android/Desktop)
+  installBtn?.addEventListener('click', async () => {
+    // Flujo específico para iOS / Safari
+    if (isIos()) {
+      if (isInStandaloneMode()) {
+        Toast.info('FinScope ya está ejecutándose como aplicación instalada.');
+      } else {
+        Toast.info('En iPhone/iPad: Toca el botón "Compartir" en Safari (el cuadro con la flecha hacia arriba) y selecciona "Agregar a la pantalla de inicio".', 6000);
+      }
+      return;
+    }
+
+    // Flujo para Android / Chrome / Chromium Desktop
+    if (!deferredInstallPrompt) {
+      Toast.info('FinScope ya está instalado o puedes instalarlo desde el menú del navegador (Compartir > Añadir a pantalla de inicio).');
+      return;
+    }
+
+    try {
+      deferredInstallPrompt.prompt();
+      const choiceResult = await deferredInstallPrompt.userChoice;
+      console.log('[PWA] Elección de instalación del usuario:', choiceResult.outcome);
+
+      if (choiceResult.outcome === 'accepted') {
+        Toast.success('¡Instalación iniciada! FinScope aparecerá en tus aplicaciones.');
+      }
+      deferredInstallPrompt = null;
+    } catch (err) {
+      console.error('[PWA] Error durante el proceso de instalación:', err);
+    }
+  });
+
+  // 5. Notificación al completar la instalación
+  window.addEventListener('appinstalled', () => {
+    console.log('[PWA] FinScope fue instalada en el dispositivo.');
+    Toast.success('¡FinScope se instaló correctamente!');
+    deferredInstallPrompt = null;
+  });
+}
+
 // Inicializar la aplicación cuando el DOM esté listo
 const app = new App();
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => app.init());
+  document.addEventListener('DOMContentLoaded', () => {
+    app.init();
+    setupPWA();
+  });
 } else {
   app.init();
+  setupPWA();
 }
 
 export default app;

@@ -239,6 +239,42 @@ runTest('Paso 5: Eliminar Alcancía con saldo remanente ($250.00) y verificar au
   assert.equal(balances.totalBalance, balances.availableBalance + sumPockets);
 });
 
+runTest('Paso 6: Fondeo Externo / Ajuste Inicial (pocket_adjustment)', () => {
+  // Crear una nueva alcancía para probar fondeo externo
+  const pockResult = accountService.createPocket(testAccountId, {
+    name: 'Fondo Emergencia',
+    targetAmount: 1000,
+    color: '#10b981',
+    icon: 'security'
+  });
+  assert.equal(pockResult.success, true);
+  const emergencyPocketId = pockResult.pocket.id;
+
+  const beforeBalances = accountService.calculateBalances(testAccountId);
+  // Realizar Fondeo Externo de $200.00 (20,000 centavos)
+  const depositResult = accountService.depositToPocket(testAccountId, emergencyPocketId, 200, 'Aporte inicial externo', true);
+  assert.equal(depositResult.success, true);
+  assert.equal(depositResult.transaction.type, 'pocket_adjustment');
+
+  const afterBalances = accountService.calculateBalances(testAccountId);
+  const pocket = afterBalances.pockets.find(p => p.id === emergencyPocketId);
+
+  // Alcancía debe tener 20,000 centavos
+  assert.equal(pocket.currentBalance, 20000, 'Alcancía debe tener 20,000 centavos');
+  // Saldo Disponible NO debe haber cambiado (sin descontar del disponible)
+  assert.equal(afterBalances.availableBalance, beforeBalances.availableBalance, 'Saldo Disponible debe quedar intacto');
+  // Saldo Total debe haber aumentado en 20,000 centavos
+  assert.equal(afterBalances.totalBalance, beforeBalances.totalBalance + 20000, 'Saldo Total debe sumar el monto fondeado');
+
+  // Invariante Contable: Total == Disponible + sum(Alcancías)
+  const sumAllPockets = afterBalances.pockets.reduce((sum, p) => sum + p.currentBalance, 0);
+  assert.equal(
+    afterBalances.totalBalance,
+    afterBalances.availableBalance + sumAllPockets,
+    'Invariante Contable Violada en pocket_adjustment: Total !== Disponible + Alcancías'
+  );
+});
+
 // -------------------------------------------------------------
 // 3. EXCLUSIÓN DE SOFT DELETES (deletedAt !== null)
 // -------------------------------------------------------------

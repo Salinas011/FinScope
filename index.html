@@ -2,14 +2,32 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#f5f6f8" />
-  <title>Finanza — Control Personal y Escalable</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#18181b" />
+  <meta name="description" content="FinScope v3.1 — Dashboard de Finanzas Personales Offline-First con IndexedDB, Safe Math, Alcancías y PWA" />
+  <title>FinScope — Finanzas Personales Inteligentes</title>
+  
+  <!-- Configuración PWA Nativa & Soporte iOS -->
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="apple-touch-icon" href="./icons/icon-192x192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="FinScope" />
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="styles.css" />
+  <!-- Soporte de resolución ESM para servidores estáticos como Live Server -->
+  <script type="importmap">
+    {
+      "imports": {
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"
+      }
+    }
+  </script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
@@ -59,18 +77,41 @@
     <!-- Contenido Principal -->
     <main class="main-content">
       <header class="topbar">
-        <button class="mobile-menu icon-button" id="menuToggle" aria-label="Abrir menú">
+        <!-- Logo de marca móvil en la barra superior -->
+        <a class="mobile-brand" href="#dashboard" aria-label="Finanza inicio">
+          <span class="brand-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 23.5V8.5h17M7 16h12M7 23.5h11"/><circle cx="23.5" cy="23.5" r="2.5"/></svg></span>
+          <span class="brand-name">finanza<span class="brand-dot">.</span></span>
+        </a>
+
+        <button class="mobile-menu icon-button" id="menuToggle" aria-label="Abrir menú" style="display: none;">
           <span class="material-symbols-rounded">menu</span>
         </button>
-        <div class="breadcrumb">Finanzas personales <span>/</span> <strong id="breadcrumbCurrent">Resumen</strong></div>
+
+        <div class="topbar-spacer"></div>
+
         <div class="top-actions">
           <span class="local-badge" id="syncStatusBadge"><span class="material-symbols-rounded">verified_user</span> Seguro en este dispositivo</span>
+          <button class="icon-button" id="privacyToggle" aria-label="Modo Privacidad" title="Ocultar/Mostrar saldos">
+            <span class="material-symbols-rounded" id="privacyIcon">visibility</span>
+          </button>
           <button class="icon-button" id="themeToggle" aria-label="Cambiar tema" title="Cambiar tema claro/oscuro">
             <span class="material-symbols-rounded" id="themeIcon">dark_mode</span>
           </button>
+          <!-- Contenedor del botón/avatar de usuario en la barra superior -->
+          <div id="topbarAuthContainer" class="topbar-auth-container"></div>
           <button class="primary-button top-add" id="topAdd"><span class="material-symbols-rounded">add</span> <span>Nuevo movimiento</span></button>
         </div>
       </header>
+
+      <!-- Ruta de navegación (Breadcrumbs) en el contenido: completa y sin cortes en cualquier dispositivo -->
+      <nav class="content-breadcrumb" id="contentBreadcrumb" aria-label="Ruta de navegación">
+        <span class="bc-item">
+          <span class="material-symbols-rounded bc-icon">space_dashboard</span>
+          <span>Espacio personal</span>
+        </span>
+        <span class="bc-sep material-symbols-rounded">chevron_right</span>
+        <strong class="bc-current" id="breadcrumbCurrent">Resumen</strong>
+      </nav>
 
       <!-- 1. VISTA DASHBOARD / RESUMEN -->
       <section class="view active-view" id="view-dashboard">
@@ -442,6 +483,9 @@
         </div>
 
         <div class="settings-grid">
+          <!-- Tarjeta Cuenta y Sincronización en la Nube -->
+          <article class="settings-card" id="settingsAuthCard"></article>
+
           <!-- Tarjeta Moneda -->
           <article class="settings-card">
             <div class="settings-card-head">
@@ -497,6 +541,28 @@
                 </label>
               </div>
               <p class="settings-help">Permite importar masivamente movimientos desde extractos bancarios o tablas de Excel.</p>
+            </div>
+          </article>
+
+          <!-- Epic 5: Tarjeta de Instalación Nativa PWA -->
+          <article class="settings-card" id="pwaSettingsCard">
+            <div class="settings-card-head">
+              <span class="settings-card-icon"><span class="material-symbols-rounded">install_mobile</span></span>
+              <div>
+                <h3>Aplicación Nativa (PWA Offline)</h3>
+                <p class="muted">Instala FinScope en tu móvil, tablet o PC para acceso rápido y sin internet</p>
+              </div>
+            </div>
+            <div class="settings-card-body">
+              <p class="settings-help">Funciona de forma 100% independiente de la red gracias al Service Worker y arquitectura Local-First.</p>
+              <div class="settings-action-row" style="margin-top: 12px; align-items: center;">
+                <button class="primary-button" id="btnInstallPwa">
+                  <span class="material-symbols-rounded">download_for_offline</span> Instalar Aplicación
+                </button>
+                <span class="pwa-status-badge" id="pwaStatusBadge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted);">
+                  <span class="material-symbols-rounded" style="font-size: 16px; color: #10b981;">offline_pin</span> Lista para uso sin conexión
+                </span>
+              </div>
             </div>
           </article>
 
@@ -767,6 +833,27 @@
         <input type="hidden" id="pocketActionPocketId"/>
         <input type="hidden" id="pocketActionMode" value="deposit"/>
 
+        <!-- Epic 2: Selector de Origen de Fondos para Alcancía -->
+        <div class="field-group" id="pocketFundingSourceGroup">
+          <label class="field-label">Origen de los fondos</label>
+          <div class="funding-options-grid">
+            <label class="funding-card-option">
+              <input type="radio" name="pocketFundingSource" value="available" checked />
+              <div class="funding-card-content">
+                <strong>Desde el Saldo Disponible</strong>
+                <small class="muted">Resta del disponible de la cuenta</small>
+              </div>
+            </label>
+            <label class="funding-card-option">
+              <input type="radio" name="pocketFundingSource" value="external" />
+              <div class="funding-card-content">
+                <strong>Fondeo Externo / Ajuste Inicial</strong>
+                <small class="muted">Suma a alcancía y cuenta sin restar disponible</small>
+              </div>
+            </label>
+          </div>
+        </div>
+
         <div class="field-group">
           <label class="field-label" for="pocketActionAmount">Monto a mover *</label>
           <div class="amount-input-wrap">
@@ -1012,7 +1099,53 @@
     </div>
   </div>
 
+  <!-- MODAL: Perfil de Usuario y Sesión en la Nube -->
+  <div class="modal-backdrop hidden" id="userProfileModal" role="dialog" aria-modal="true" aria-labelledby="userProfileModalTitle">
+    <div class="modal-card compact-modal">
+      <div class="modal-header">
+        <div>
+          <h2 id="userProfileModalTitle">Cuenta y Sincronización</h2>
+          <p class="muted" style="font-size: 11px;">Administra tu sesión y respaldo en la nube</p>
+        </div>
+        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar modal">
+          <span class="material-symbols-rounded">close</span>
+        </button>
+      </div>
+      <div id="userProfileModalBody" class="user-profile-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Epic 3: Floating Action Button (FAB) para dispositivos móviles -->
+  <button class="mobile-fab" id="mobileFab" aria-label="Nuevo movimiento" title="Nuevo movimiento">
+    <span class="material-symbols-rounded">add</span>
+  </button>
+
+  <!-- Epic 3: Barra de Navegación Inferior (Bottom Navigation Bar) para pantallas móviles -->
+  <nav class="bottom-nav" id="bottomNav" aria-label="Navegación móvil inferior">
+    <button class="bottom-nav-item active" data-view="dashboard" aria-label="Resumen">
+      <span class="material-symbols-rounded">dashboard</span>
+      <span>Inicio</span>
+    </button>
+    <button class="bottom-nav-item" data-view="transactions" aria-label="Movimientos">
+      <span class="material-symbols-rounded">receipt_long</span>
+      <span>Movimientos</span>
+    </button>
+    <button class="bottom-nav-item" data-view="accounts" aria-label="Cuentas">
+      <span class="material-symbols-rounded">account_balance_wallet</span>
+      <span>Cuentas</span>
+    </button>
+    <button class="bottom-nav-item" data-view="budgets" aria-label="Presupuestos">
+      <span class="material-symbols-rounded">pie_chart</span>
+      <span>Presupuesto</span>
+    </button>
+    <button class="bottom-nav-item" data-view="settings" aria-label="Configuración">
+      <span class="material-symbols-rounded">settings</span>
+      <span>Ajustes</span>
+    </button>
+  </nav>
+
   <!-- Carga del punto de entrada modular (ES Modules nativos sin dependencias obligatorias) -->
   <script type="module" src="src/main.js"></script>
 </body>
 </html>
+

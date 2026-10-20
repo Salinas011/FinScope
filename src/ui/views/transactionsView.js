@@ -67,11 +67,41 @@ export class TransactionsView {
       const acc = accountService.getById(t.accountId);
       const isIncome = t.type === 'income';
       const isTransfer = t.type === 'transfer';
-      const typeLabel = isIncome ? 'Ingreso' : isTransfer ? 'Transferencia' : 'Gasto';
-      const typeClass = isIncome ? 'income' : isTransfer ? 'transfer' : 'expense';
-      const iconBg = `${cat.color}1c`;
-      const amountColor = isIncome ? 'income-amount' : isTransfer ? 'transfer-amount' : '';
-      const sign = isIncome ? '+' : isTransfer ? '⇄' : '−';
+      const isAdjustment = t.type === 'pocket_adjustment';
+      const isPocketDeposit = t.type === 'pocket_deposit';
+      const isPocketWithdraw = t.type === 'pocket_withdraw';
+
+      let typeLabel = 'Gasto';
+      let typeClass = 'expense';
+      let amountColor = '';
+      let sign = '−';
+
+      if (isIncome) {
+        typeLabel = 'Ingreso';
+        typeClass = 'income';
+        amountColor = 'income-amount';
+        sign = '+';
+      } else if (isTransfer) {
+        typeLabel = 'Transferencia';
+        typeClass = 'transfer';
+        amountColor = 'transfer-amount';
+        sign = '⇄';
+      } else if (isAdjustment) {
+        typeLabel = 'Fondeo Alcancía';
+        typeClass = 'adjustment';
+        amountColor = 'income-amount';
+        sign = '+';
+      } else if (isPocketDeposit) {
+        typeLabel = 'Aporte Alcancía';
+        typeClass = 'transfer';
+        amountColor = 'transfer-amount';
+        sign = '→';
+      } else if (isPocketWithdraw) {
+        typeLabel = 'Retiro Alcancía';
+        typeClass = 'transfer';
+        amountColor = '';
+        sign = '←';
+      }
 
       const pocket = t.pocketId ? (acc.pockets || []).find(p => p.id === t.pocketId) : null;
       const pocketLabel = pocket ? ` · [Alcancía: ${this.escape(pocket.name)}]` : '';

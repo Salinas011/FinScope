@@ -96,6 +96,14 @@ class AccountService {
             pocketBalances.set(t.pocketId, pocketBalances.get(t.pocketId) - amount);
             // El Saldo Total no cambia
           }
+        } else if (t.type === 'pocket_adjustment') {
+          // Fondeo Externo / Ajuste Inicial:
+          // Suma a la Alcancía Y al Saldo Total de la cuenta padre, SIN descontar del Saldo Disponible.
+          if (t.pocketId && pocketBalances.has(t.pocketId)) {
+            totalBalance += amount;
+            pocketBalances.set(t.pocketId, pocketBalances.get(t.pocketId) + amount);
+            // availableBalance queda intacto (invariante contable se preserva)
+          }
         }
       }
 
@@ -417,45 +425,55 @@ class AccountService {
   }
 
   /**
-   * Mueve fondos del Saldo Disponible hacia la Alcancía (Meter dinero).
-   * Genera un movimiento interno `pocket_deposit` que no altera ingresos, gastos ni presupuestos.
+   * Mueve fondos hacia la Alcancía.
+   * Si isExternalFunding es false: mueve fondos del Saldo Disponible hacia la Alcancía (pocket_deposit).
+   * Si isExternalFunding es true: realiza un Fondeo Externo / Ajuste Inicial sumando al total de la cuenta
+   * y a la alcancía sin descontar del disponible (pocket_adjustment).
    * @param {string} accountId
    * @param {string} pocketId
    * @param {number|string} amount
    * @param {string} [note='']
+   * @param {boolean} [isExternalFunding=false]
    * @returns {Object}
    */
-  depositToPocket(accountId, pocketId, amount, note = '') {
+  depositToPocket(accountId, pocketId, amount, note = '', isExternalFunding = false) {
     const amountInCents = currencyService.toCents(amount);
     if (amountInCents <= 0) {
       return { success: false, error: 'El monto a asignar debe ser mayor a cero.' };
     }
 
     const balances = this.calculateBalances(accountId);
-    if (balances.availableBalance < amountInCents) {
+    const pocket = balances.pockets.find(p => p.id === pocketId);
+    if (!pocket) {
+      return { success: false, error: 'Alcancía no encontrada.' };
+    }
+
+    if (!isExternalFunding && balances.availableBalance < amountInCents) {
       return {
         success: false,
         error: `Saldo disponible insuficiente. Disponible: ${currencyService.format(balances.availableBalance)}.`
       };
     }
 
-    const pocket = balances.pockets.find(p => p.id === pocketId);
-    if (!pocket) {
-      return { success: false, error: 'Alcancía no encontrada.' };
-    }
-
     const now = Date.now();
+    const type = isExternalFunding ? 'pocket_adjustment' : 'pocket_deposit';
+    const title = isExternalFunding
+      ? `Fondeo externo a alcancía: ${pocket.name}`
+      : `Aporte a alcancía: ${pocket.name}`;
+    const defaultNote = isExternalFunding ? 'Fondeo externo / Ajuste inicial' : 'Asignación a alcancía';
+    const idPrefix = isExternalFunding ? 'tx-pka' : 'tx-pkd';
+
     const internalTx = {
-      id: `tx-pkd-${now}-${Math.random().toString(36).slice(2, 7)}`,
-      type: 'pocket_deposit',
-      title: `Aporte a alcancía: ${pocket.name}`,
+      id: `${idPrefix}-${now}-${Math.random().toString(36).slice(2, 7)}`,
+      type,
+      title,
       amount: amountInCents,
       date: new Date().toISOString().slice(0, 10),
       accountId,
       pocketId,
       categoryId: 'cat-extra',
-      method: 'Bolsillo',
-      note: note ? note.trim() : 'Asignación a alcancía',
+      method: isExternalFunding ? 'Fondeo Externo' : 'Bolsillo',
+      note: note ? note.trim() : defaultNote,
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
@@ -464,7 +482,7 @@ class AccountService {
 
     store.setState(
       state => ({ transactions: [internalTx, ...(state.transactions || [])] }),
-      'pocket:deposit'
+      isExternalFunding ? 'pocket:adjustment' : 'pocket:deposit'
     );
 
     return { success: true, transaction: internalTx };

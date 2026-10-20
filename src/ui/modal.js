@@ -53,6 +53,7 @@ export class Modal {
 
     el.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
+    document.body.classList.add('modal-open');
 
     // Autofocus en el primer campo interactivo
     const firstInput = el.querySelector('input:not([type=hidden]), select, textarea, button:not(.close-modal)');
@@ -69,6 +70,7 @@ export class Modal {
       modal.classList.add('hidden');
     });
     document.body.style.overflow = '';
+    document.body.classList.remove('modal-open');
     this.currentConfirmAction = null;
   }
 
@@ -96,5 +98,6 @@ export class Modal {
     this.currentConfirmAction = onConfirm;
     modalEl.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
+    document.body.classList.add('modal-open');
   }
 }

@@ -68,11 +68,18 @@ class CurrencyService {
    * Formatea un valor en centavos hacia la capa de presentación (UI) usando Intl.NumberFormat.
    * @param {number} cents Valor expresado en centavos.
    * @param {boolean} [includeCode=false] Si debe incluir el código ISO (ej: COP, USD).
+   * @param {boolean} [forceShow=false] Si debe forzar la visualización ignorando el Modo Privacidad.
    * @returns {string}
    */
-  format(cents, includeCode = false) {
-    const majorUnit = this.fromCents(cents);
+  format(cents, includeCode = false, forceShow = false) {
     const config = this.getCurrencyConfig();
+
+    // Epic 4: Modo Privacidad - Ocultar montos si está activo
+    if (!forceShow && store.isPrivacyMode) {
+      return `${config.symbol} ****`;
+    }
+
+    const majorUnit = this.fromCents(cents);
 
     try {
       const formatter = new Intl.NumberFormat(config.locale, {
@@ -97,12 +104,18 @@ class CurrencyService {
   /**
    * Formatea valores grandes expresados en centavos de forma abreviada (ej. $ 1.2 M, $ 450 k).
    * @param {number} cents
+   * @param {boolean} [forceShow=false]
    * @returns {string}
    */
-  formatShort(cents) {
+  formatShort(cents, forceShow = false) {
+    const config = this.getCurrencyConfig();
+
+    if (!forceShow && store.isPrivacyMode) {
+      return `${config.symbol} ****`;
+    }
+
     const majorUnit = this.fromCents(cents);
     const abs = Math.abs(majorUnit);
-    const config = this.getCurrencyConfig();
     const sign = majorUnit < 0 ? '-' : '';
 
     if (abs >= 1000000) {
@@ -113,7 +126,7 @@ class CurrencyService {
       const thousands = (abs / 1000).toLocaleString(config.locale, { maximumFractionDigits: 0 });
       return `${sign}${config.symbol} ${thousands} k`;
     }
-    return this.format(cents);
+    return this.format(cents, false, forceShow);
   }
 
   /**

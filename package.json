@@ -1,7 +1,7 @@
 {
   "name": "finscope",
-  "version": "3.0.0",
-  "description": "FinScope v3 — Dashboard de Finanzas Personales Offline-First con IndexedDB, Safe Math y Alcancías",
+  "version": "3.1.0",
+  "description": "FinScope v3.1 — Dashboard de Finanzas Personales PWA Offline-First con IndexedDB, Safe Math y Alcancías",
   "type": "module",
   "scripts": {
     "dev": "vite",
