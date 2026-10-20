@@ -13,6 +13,7 @@ import { budgetService } from './services/budgetService.js';
 import { recurringService } from './services/recurringService.js';
 import { dataTransferService } from './services/dataTransferService.js';
 import { authService } from './services/authService.js';
+import { firestoreService } from './services/firestoreService.js';
 
 import { Toast } from './ui/toast.js';
 import { Modal } from './ui/modal.js';
@@ -75,10 +76,28 @@ class App {
       Toast.error(err);
     });
 
+    // Estado reactivo de sincronización con Firestore
+    firestoreService.onSyncStatusChange(status => {
+      this.updateSyncUI(status);
+    });
+
+    // Guardar cambios en Firestore cuando el usuario esté autenticado
+    eventBus.on('state:changed', () => {
+      const user = authService.getUser();
+      if (user) {
+        firestoreService.saveCurrentStateDebounced(user);
+      }
+    });
+
     // Suscribirse a cambios en el estado de autenticación de Google
     let hasInitializedAuth = false;
     authService.subscribe(user => {
       this.renderAuthUI(user);
+      if (user) {
+        firestoreService.attachUser(user);
+      } else {
+        firestoreService.detachUser();
+      }
       if (hasInitializedAuth && user) {
         Toast.success(`¡Bienvenido, ${user.givenName || user.name || 'Usuario'}!`);
       }
@@ -86,6 +105,35 @@ class App {
     });
 
     console.log('Finanza v2 iniciado exitosamente.');
+  }
+
+  updateSyncUI(status) {
+    const badge = document.getElementById('syncStatusBadge');
+    const dot = document.getElementById('syncStatusDot');
+
+    if (badge) {
+      badge.classList.remove('cloud-synced', 'cloud-syncing');
+      if (status === 'connected') {
+        badge.classList.add('cloud-synced');
+        badge.innerHTML = `<span class="material-symbols-rounded">cloud_done</span> Sincronizado en la nube`;
+        badge.title = 'Tus datos están sincronizados en tiempo real con Firebase Firestore';
+      } else if (status === 'syncing') {
+        badge.classList.add('cloud-syncing');
+        badge.innerHTML = `<span class="material-symbols-rounded">sync</span> Sincronizando...`;
+        badge.title = 'Guardando cambios en la nube...';
+      } else if (status === 'error') {
+        badge.innerHTML = `<span class="material-symbols-rounded" style="color:#ef4444;">cloud_off</span> Error de sincronización`;
+        badge.title = 'No se pudo conectar con Firestore. Guardando solo localmente.';
+      } else {
+        badge.innerHTML = `<span class="material-symbols-rounded">verified_user</span> Seguro en este dispositivo`;
+        badge.title = 'Almacenamiento local privado';
+      }
+    }
+
+    if (dot) {
+      dot.classList.toggle('synced', status === 'connected');
+      dot.title = status === 'connected' ? 'Sincronizado con Firebase Firestore' : 'Almacenamiento local activo';
+    }
   }
 
   renderAuthUI(user) {

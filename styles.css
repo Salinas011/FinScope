@@ -542,6 +542,43 @@ button:disabled {
   background: #71717a;
 }
 
+.local-badge .material-symbols-rounded {
+  height: auto !important;
+  width: auto !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  font-size: 15px !important;
+  display: inline-block;
+}
+
+.local-badge.cloud-synced {
+  color: #10b981;
+  font-weight: 600;
+}
+
+.local-badge.cloud-synced .material-symbols-rounded {
+  color: #10b981;
+}
+
+.local-badge.cloud-syncing {
+  color: #3b82f6;
+}
+
+.local-badge.cloud-syncing .material-symbols-rounded {
+  color: #3b82f6;
+  animation: spin 1.5s linear infinite;
+}
+
+.online-dot.synced {
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.25);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .icon-button {
   height: 36px;
   width: 36px;
