@@ -102,19 +102,33 @@ class AuthService {
         const container = document.getElementById(id);
         if (container && !this.isAuthenticated()) {
           container.innerHTML = '';
+          const isModal = id === 'googleBtnModal';
           window.google.accounts.id.renderButton(container, {
             type: 'standard',
             shape: 'rectangular',
             theme: document.body.classList.contains('dark') ? 'filled_black' : 'outline',
             text: 'signin_with',
-            size: 'medium',
+            size: isModal ? 'large' : 'medium',
             logo_alignment: 'left',
-            width: Math.min(240, window.innerWidth - 60)
+            width: isModal ? Math.min(280, window.innerWidth - 60) : Math.min(240, window.innerWidth - 60)
           });
         }
       });
     } catch (error) {
       console.error('Error inicializando Google Identity Services:', error);
+    }
+  }
+
+  /**
+   * Dispara el flujo de inicio de sesión de Google (One Tap o selector de cuentas).
+   */
+  promptGoogleLogin() {
+    if (typeof window !== 'undefined' && window.google?.accounts?.id) {
+      try {
+        window.google.accounts.id.prompt();
+      } catch (e) {
+        console.warn('Error al invocar prompt de Google:', e);
+      }
     }
   }
 

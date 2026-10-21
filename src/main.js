@@ -11,7 +11,6 @@ import { accountService } from './services/accountService.js';
 import { categoryService } from './services/categoryService.js';
 import { budgetService } from './services/budgetService.js';
 import { recurringService } from './services/recurringService.js';
-import { dataTransferService } from './services/dataTransferService.js';
 import { authService } from './services/authService.js';
 import { firestoreService } from './services/firestoreService.js';
 
@@ -19,12 +18,35 @@ import { Toast } from './ui/toast.js';
 import { Modal } from './ui/modal.js';
 import { getMaterialIconName } from './ui/icons.js';
 import { DashboardView } from './ui/views/dashboardView.js';
-import { TransactionsView } from './ui/views/transactionsView.js';
-import { AccountsView } from './ui/views/accountsView.js';
-import { BudgetsView } from './ui/views/budgetsView.js';
-import { CategoriesView } from './ui/views/categoriesView.js';
-import { RecurringView } from './ui/views/recurringView.js';
-import { SettingsView } from './ui/views/settingsView.js';
+
+// Carga perezosa (Lazy Loading / dynamic import) para servicio de transferencia pesada
+const getDataTransferService = async () => {
+  const mod = await import('./services/dataTransferService.js');
+  return mod.dataTransferService;
+};
+
+// Carga perezosa (Lazy Loading / dynamic import) para vistas secundarias
+const viewLoaders = {
+  transactions: () => import('./ui/views/transactionsView.js').then(m => m.TransactionsView),
+  accounts: () => import('./ui/views/accountsView.js').then(m => m.AccountsView),
+  budgets: () => import('./ui/views/budgetsView.js').then(m => m.BudgetsView),
+  categories: () => import('./ui/views/categoriesView.js').then(m => m.CategoriesView),
+  recurring: () => import('./ui/views/recurringView.js').then(m => m.RecurringView),
+  settings: () => import('./ui/views/settingsView.js').then(m => m.SettingsView),
+};
+
+const loadedViews = {};
+
+async function loadView(name) {
+  if (loadedViews[name]) return loadedViews[name];
+  if (viewLoaders[name]) {
+    const viewClass = await viewLoaders[name]();
+    loadedViews[name] = viewClass;
+    return viewClass;
+  }
+  return null;
+}
+
 
 class App {
   constructor() {
@@ -376,13 +398,66 @@ class App {
       }
     }
 
+    // Actualizar clase global en body y botones de acción según el estado de autenticación
+    document.body.classList.toggle('guest-mode', !user);
+
+    const topAddBtn = document.getElementById('topAdd');
+    if (topAddBtn) {
+      topAddBtn.innerHTML = !user
+        ? '<span class="material-symbols-rounded">add</span> <span>Nuevo movimiento</span> <span class="material-symbols-rounded auth-lock-mini" title="Requiere iniciar sesión">lock</span>'
+        : '<span class="material-symbols-rounded">add</span> <span>Nuevo movimiento</span>';
+    }
+
+    // Si el usuario inició sesión y el modal de cuenta/sincronización está abierto
+    const userProfileModal = document.getElementById('userProfileModal');
+    if (user && userProfileModal && !userProfileModal.classList.contains('hidden')) {
+      Modal.closeAll();
+    }
+
     // Inicializar botones de Google en todos los contenedores activos si el usuario es invitado
     if (!user) {
       authService.initGoogleAuth(['googleBtnContainer', 'googleBtnModal', 'googleBtnSettings']);
     }
   }
 
-  setView(viewName) {
+  /**
+   * Interceptor de autenticación para operaciones de escritura/mutación.
+   * Si el usuario no ha iniciado sesión, detiene la acción y abre el modal original
+   * de Cuenta y Sincronización.
+   * @param {Function} [actionCallback] - Acción a ejecutar si el usuario está autenticado.
+   * @returns {boolean} true si está autenticado, false si fue interceptado.
+   */
+  requireAuth(actionCallback) {
+    if (authService.isAuthenticated()) {
+      if (typeof actionCallback === 'function') {
+        actionCallback();
+      }
+      return true;
+    }
+    this.openUserProfileModal();
+    return false;
+  }
+
+  /**
+   * Abre directamente el modal original de Cuenta y Sincronización.
+   */
+  openUserProfileModal() {
+    Modal.open('#userProfileModal');
+    if (!authService.isAuthenticated()) {
+      setTimeout(() => {
+        authService.initGoogleAuth(['googleBtnModal', 'googleBtnSettings', 'googleBtnContainer']);
+      }, 80);
+    }
+  }
+
+  /**
+   * Alias de compatibilidad
+   */
+  openAuthGuardModal() {
+    this.openUserProfileModal();
+  }
+
+  async setView(viewName) {
     if (!VIEW_TITLES[viewName]) return;
     this.activeView = viewName;
 
@@ -410,44 +485,56 @@ class App {
     // Cerrar sidebar en pantallas táctiles/móviles
     document.getElementById('sidebar')?.classList.remove('open');
 
-    this.renderActiveView();
+    await this.renderActiveView();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  renderActiveView() {
+  async renderActiveView() {
     switch (this.activeView) {
       case 'dashboard':
         DashboardView.render(this.selectedMonth);
         break;
-      case 'transactions':
-        TransactionsView.render();
+      case 'transactions': {
+        const view = await loadView('transactions');
+        view?.render();
         break;
-      case 'accounts':
-        AccountsView.render();
+      }
+      case 'accounts': {
+        const view = await loadView('accounts');
+        view?.render();
         break;
-      case 'budgets':
-        BudgetsView.render(this.selectedMonth);
+      }
+      case 'budgets': {
+        const view = await loadView('budgets');
+        view?.render(this.selectedMonth);
         break;
-      case 'categories':
-        CategoriesView.render();
+      }
+      case 'categories': {
+        const view = await loadView('categories');
+        view?.render();
         break;
-      case 'recurring':
-        RecurringView.render(this.selectedMonth);
+      }
+      case 'recurring': {
+        const view = await loadView('recurring');
+        view?.render(this.selectedMonth);
         break;
-      case 'settings':
-        SettingsView.render();
+      }
+      case 'settings': {
+        const view = await loadView('settings');
+        view?.render();
         break;
+      }
     }
   }
 
   renderAll() {
     DashboardView.render(this.selectedMonth);
-    TransactionsView.render();
-    AccountsView.render();
-    BudgetsView.render(this.selectedMonth);
-    CategoriesView.render();
-    RecurringView.render(this.selectedMonth);
-    SettingsView.render();
+    if (loadedViews.transactions) loadedViews.transactions.render();
+    if (loadedViews.accounts) loadedViews.accounts.render();
+    if (loadedViews.budgets) loadedViews.budgets.render(this.selectedMonth);
+    if (loadedViews.categories) loadedViews.categories.render();
+    if (loadedViews.recurring) loadedViews.recurring.render(this.selectedMonth);
+    if (loadedViews.settings) loadedViews.settings.render();
   }
 
   refreshSelects() {
@@ -743,7 +830,8 @@ class App {
 
     if (idInput) idInput.value = category?.id || '';
     if (nameInput) nameInput.value = category?.name || '';
-    if (typeInput) typeInput.value = category?.type || CategoriesView.activeTab;
+    const activeTab = loadedViews.categories?.activeTab || 'expense';
+    if (typeInput) typeInput.value = category?.type || activeTab;
     if (colorInput) colorInput.value = category?.color || '#52525b';
     if (iconInput) iconInput.value = getMaterialIconName(category?.icon, 'category');
 
@@ -905,11 +993,12 @@ class App {
     });
 
     // 5. Botón agregar movimiento en topbar, llamadas rápidas y FAB móvil
-    document.getElementById('topAdd')?.addEventListener('click', () => this.openTransactionModal());
-    document.getElementById('mobileFab')?.addEventListener('click', () => this.openTransactionModal());
+    document.getElementById('topAdd')?.addEventListener('click', () => this.requireAuth(() => this.openTransactionModal()));
+    document.getElementById('mobileFab')?.addEventListener('click', () => this.requireAuth(() => this.openTransactionModal()));
     document.querySelectorAll('[data-open-add]').forEach(btn => {
-      btn.addEventListener('click', () => this.openTransactionModal());
+      btn.addEventListener('click', () => this.requireAuth(() => this.openTransactionModal()));
     });
+
 
     // 6. Selector de tipo (Gasto / Ingreso) en modal de movimiento
     document.querySelectorAll('.type-option').forEach(btn => {
@@ -925,9 +1014,10 @@ class App {
     // 6. Selector de cuenta en modal: refrescar alcancías dinámicamente
     document.getElementById('transactionAccount')?.addEventListener('change', () => this.refreshPocketSelect());
 
-    // 7. Envíos de Formularios
+    // 7. Envíos de Formularios protegidos con Auth Guard
     document.getElementById('transactionForm')?.addEventListener('submit', e => {
       e.preventDefault();
+      if (!this.requireAuth()) return;
       const type = document.getElementById('transactionType').value;
       const title = document.getElementById('transactionTitle').value;
       const amount = document.getElementById('transactionAmount').value;
@@ -964,6 +1054,7 @@ class App {
     // Formulario de creación/edición de alcancía
     document.getElementById('pocketForm')?.addEventListener('submit', e => {
       e.preventDefault();
+      if (!this.requireAuth()) return;
       const accountId = document.getElementById('pocketAccountId').value;
       const pocketId = document.getElementById('editingPocketId').value;
       const name = document.getElementById('pocketName').value;
@@ -990,6 +1081,7 @@ class App {
     // Formulario de movimientos internos de alcancía (Meter / Sacar)
     document.getElementById('pocketActionForm')?.addEventListener('submit', e => {
       e.preventDefault();
+      if (!this.requireAuth()) return;
       const accountId = document.getElementById('pocketActionAccountId').value;
       const pocketId = document.getElementById('pocketActionPocketId').value;
       const mode = document.getElementById('pocketActionMode').value;
@@ -1019,6 +1111,7 @@ class App {
 
     document.getElementById('accountForm')?.addEventListener('submit', e => {
       e.preventDefault();
+      if (!this.requireAuth()) return;
       const id = document.getElementById('editingAccountId').value;
       const name = document.getElementById('accountName').value;
       const type = document.getElementById('accountType').value;
@@ -1039,6 +1132,7 @@ class App {
 
     document.getElementById('transferForm')?.addEventListener('submit', e => {
       e.preventDefault();
+      if (!this.requireAuth()) return;
       const fromAccountId = document.getElementById('transferFromAccount').value;
       const toAccountId = document.getElementById('transferToAccount').value;
       const amount = document.getElementById('transferAmount').value;
@@ -1057,6 +1151,7 @@ class App {
 
     document.getElementById('categoryForm')?.addEventListener('submit', e => {
       e.preventDefault();
+      if (!this.requireAuth()) return;
       const id = document.getElementById('editingCategoryId').value;
       const name = document.getElementById('categoryName').value;
       const type = document.getElementById('categoryType').value;
@@ -1067,7 +1162,9 @@ class App {
       if (result.success) {
         Toast.success(id ? 'Categoría actualizada.' : 'Categoría creada.');
         Modal.closeAll();
-        CategoriesView.activeTab = type;
+        if (loadedViews.categories) {
+          loadedViews.categories.activeTab = type;
+        }
         this.refreshSelects();
         this.renderAll();
       } else {
@@ -1077,6 +1174,7 @@ class App {
 
     document.getElementById('budgetForm')?.addEventListener('submit', e => {
       e.preventDefault();
+      if (!this.requireAuth()) return;
       const id = document.getElementById('editingBudgetId').value;
       const categoryId = document.getElementById('budgetCategory').value;
       const limit = document.getElementById('budgetLimit').value;
@@ -1094,6 +1192,7 @@ class App {
 
     document.getElementById('recurringForm')?.addEventListener('submit', e => {
       e.preventDefault();
+      if (!this.requireAuth()) return;
       const id = document.getElementById('editingRecurringId').value;
       const title = document.getElementById('recurringTitle').value;
       const amount = document.getElementById('recurringAmount').value;
@@ -1123,28 +1222,32 @@ class App {
       }
     });
 
-    // 8. Botones de Apertura de Modales
-    document.getElementById('addAccountButton')?.addEventListener('click', () => this.openAccountModal());
-    document.getElementById('transferButton')?.addEventListener('click', () => this.openTransferModal());
-    document.getElementById('addCategoryButton')?.addEventListener('click', () => this.openCategoryModal());
-    document.getElementById('addBudgetButton')?.addEventListener('click', () => this.openBudgetModal());
-    document.getElementById('emptyAddBudget')?.addEventListener('click', () => this.openBudgetModal());
-    document.getElementById('addRecurringButton')?.addEventListener('click', () => this.openRecurringModal());
-    document.getElementById('emptyAddRecurring')?.addEventListener('click', () => this.openRecurringModal());
+    // 8. Botones de Apertura de Modales protegidos con Auth Guard
+    document.getElementById('addAccountButton')?.addEventListener('click', () => this.requireAuth(() => this.openAccountModal()));
+    document.getElementById('transferButton')?.addEventListener('click', () => this.requireAuth(() => this.openTransferModal()));
+    document.getElementById('addCategoryButton')?.addEventListener('click', () => this.requireAuth(() => this.openCategoryModal()));
+    document.getElementById('addBudgetButton')?.addEventListener('click', () => this.requireAuth(() => this.openBudgetModal()));
+    document.getElementById('emptyAddBudget')?.addEventListener('click', () => this.requireAuth(() => this.openBudgetModal()));
+    document.getElementById('addRecurringButton')?.addEventListener('click', () => this.requireAuth(() => this.openRecurringModal()));
+    document.getElementById('emptyAddRecurring')?.addEventListener('click', () => this.requireAuth(() => this.openRecurringModal()));
 
     // 9. Pestañas de categorías
     document.querySelectorAll('.category-tab').forEach(btn => {
-      btn.addEventListener('click', () => {
-        CategoriesView.activeTab = btn.dataset.catType;
-        CategoriesView.render();
+      btn.addEventListener('click', async () => {
+        const CategoriesView = await loadView('categories');
+        if (CategoriesView) {
+          CategoriesView.activeTab = btn.dataset.catType;
+          CategoriesView.render();
+        }
       });
     });
 
     // 10. Filtros y búsqueda debounced en movimientos
     let debounceTimer = null;
-    const handleFilterChange = () => {
-      TransactionsView.resetPagination();
-      TransactionsView.render();
+    const handleFilterChange = async () => {
+      const TransactionsView = await loadView('transactions');
+      TransactionsView?.resetPagination();
+      TransactionsView?.render();
     };
 
     document.getElementById('transactionSearch')?.addEventListener('input', () => {
@@ -1156,7 +1259,7 @@ class App {
       document.getElementById(id)?.addEventListener('change', handleFilterChange);
     });
 
-    document.getElementById('clearFilters')?.addEventListener('click', () => {
+    document.getElementById('clearFilters')?.addEventListener('click', async () => {
       const search = document.getElementById('transactionSearch');
       const type = document.getElementById('typeFilter');
       const cat = document.getElementById('categoryFilter');
@@ -1169,12 +1272,13 @@ class App {
       if (acc) acc.value = 'all';
       if (month) month.value = '';
 
-      TransactionsView.resetPagination();
-      TransactionsView.render();
+      const TransactionsView = await loadView('transactions');
+      TransactionsView?.resetPagination();
+      TransactionsView?.render();
     });
 
-    // 11. Exportar e Importar
-    document.getElementById('exportTransactions')?.addEventListener('click', () => {
+    // 11. Exportar e Importar (Lazy Loaded)
+    document.getElementById('exportTransactions')?.addEventListener('click', async () => {
       // Exportar solo los filtrados
       const search = document.getElementById('transactionSearch')?.value || '';
       const type = document.getElementById('typeFilter')?.value || 'all';
@@ -1186,37 +1290,46 @@ class App {
         search, type, categoryId, accountId, month, pageSize: 999999
       });
 
-      dataTransferService.exportCSV(queryResult.items);
+      const dts = await getDataTransferService();
+      dts.exportCSV(queryResult.items);
       Toast.success(`Exportados ${queryResult.items.length} movimientos a CSV.`);
     });
 
-    document.getElementById('exportSidebar')?.addEventListener('click', () => {
-      dataTransferService.exportBackupJSON();
+    document.getElementById('exportSidebar')?.addEventListener('click', async () => {
+      const dts = await getDataTransferService();
+      dts.exportBackupJSON();
       Toast.success('Copia de respaldo JSON descargada.');
     });
 
-    document.getElementById('btnExportJSON')?.addEventListener('click', () => {
-      dataTransferService.exportBackupJSON();
+    document.getElementById('btnExportJSON')?.addEventListener('click', async () => {
+      const dts = await getDataTransferService();
+      dts.exportBackupJSON();
       Toast.success('Copia de respaldo JSON descargada.');
     });
 
-    document.getElementById('btnExportCSV')?.addEventListener('click', () => {
-      dataTransferService.exportCSV();
+    document.getElementById('btnExportCSV')?.addEventListener('click', async () => {
+      const dts = await getDataTransferService();
+      dts.exportCSV();
       Toast.success('Todos los movimientos exportados a CSV.');
     });
 
     // Importar JSON
     document.getElementById('jsonFileInput')?.addEventListener('change', e => {
+      if (!this.requireAuth()) {
+        e.target.value = '';
+        return;
+      }
       const file = e.target.files?.[0];
       if (!file) return;
 
       const reader = new FileReader();
-      reader.onload = ev => {
+      reader.onload = async ev => {
+        const dts = await getDataTransferService();
         Modal.confirm(
           '¿Importar copia de respaldo JSON?',
           'Selecciona si deseas reemplazar toda la base de datos o fusionarla con tus registros existentes.',
           () => {
-            const res = dataTransferService.importBackupJSON(ev.target.result, 'replace');
+            const res = dts.importBackupJSON(ev.target.result, 'replace');
             if (res.success) {
               Toast.success(`Respaldo restaurado con ${res.count} movimientos.`);
               this.renderAll();
@@ -1233,12 +1346,17 @@ class App {
 
     // Importar CSV
     document.getElementById('csvFileInput')?.addEventListener('change', e => {
+      if (!this.requireAuth()) {
+        e.target.value = '';
+        return;
+      }
       const file = e.target.files?.[0];
       if (!file) return;
 
       const reader = new FileReader();
-      reader.onload = ev => {
-        const parseResult = dataTransferService.parseCSV(ev.target.result);
+      reader.onload = async ev => {
+        const dts = await getDataTransferService();
+        const parseResult = dts.parseCSV(ev.target.result);
         if (!parseResult.success) {
           Toast.error(parseResult.error);
           return;
@@ -1249,7 +1367,7 @@ class App {
           `¿Importar ${count} movimientos desde CSV?`,
           `Se encontraron ${count} movimientos válidos en el archivo. ¿Deseas agregarlos a tu historial?`,
           () => {
-            dataTransferService.commitCSVTransactions(parseResult.transactions);
+            dts.commitCSVTransactions(parseResult.transactions);
             Toast.success(`${count} movimientos importados exitosamente.`);
             this.renderAll();
           },
@@ -1269,221 +1387,255 @@ class App {
 
     // Restablecer de fábrica
     document.getElementById('btnFactoryReset')?.addEventListener('click', () => {
-      Modal.confirm(
-        '¿Restablecer datos de fábrica?',
-        '¡ADVERTENCIA! Se borrarán todos los movimientos, cuentas y presupuestos guardados en este navegador. Asegúrate de haber exportado un respaldo primero.',
-        () => {
-          store.reset();
-          Toast.info('Datos restablecidos a la configuración inicial.');
-          this.refreshSelects();
-          this.renderAll();
-        },
-        { confirmText: 'Sí, borrar todo', isDanger: true }
-      );
+      this.requireAuth(() => {
+        Modal.confirm(
+          '¿Restablecer datos de fábrica?',
+          '¡ADVERTENCIA! Se borrarán todos los movimientos, cuentas y presupuestos guardados en este navegador. Asegúrate de haber exportado un respaldo primero.',
+          () => {
+            store.reset();
+            Toast.info('Datos restablecidos a la configuración inicial.');
+            this.refreshSelects();
+            this.renderAll();
+          },
+          { confirmText: 'Sí, borrar todo', isDanger: true }
+        );
+      });
     });
 
-    // 12. Delegación de eventos en clics dinámicos (Editar, Borrar, Acciones)
+    // 12. Delegación de eventos en clics dinámicos protegida con Auth Guard (Editar, Borrar, Acciones)
     document.addEventListener('click', e => {
       // Movimientos
       const editTx = e.target.closest('[data-edit-transaction]');
       if (editTx) {
-        const tx = transactionService.getById(editTx.dataset.editTransaction);
-        if (tx) this.openTransactionModal(tx.type, tx);
+        this.requireAuth(() => {
+          const tx = transactionService.getById(editTx.dataset.editTransaction);
+          if (tx) this.openTransactionModal(tx.type, tx);
+        });
         return;
       }
 
       const delTx = e.target.closest('[data-delete-transaction]');
       if (delTx) {
-        const id = delTx.dataset.deleteTransaction;
-        const tx = transactionService.getById(id);
-        if (!tx) return;
-        Modal.confirm(
-          '¿Eliminar movimiento?',
-          `Se eliminará “${tx.title}” de tus registros permanentemente.`,
-          () => {
-            transactionService.deleteTransaction(id);
-            Toast.success('Movimiento eliminado.');
-            this.renderAll();
-          }
-        );
+        this.requireAuth(() => {
+          const id = delTx.dataset.deleteTransaction;
+          const tx = transactionService.getById(id);
+          if (!tx) return;
+          Modal.confirm(
+            '¿Eliminar movimiento?',
+            `Se eliminará “${tx.title}” de tus registros permanentemente.`,
+            () => {
+              transactionService.deleteTransaction(id);
+              Toast.success('Movimiento eliminado.');
+              this.renderAll();
+            }
+          );
+        });
         return;
       }
 
       // Cuentas
       const editAcc = e.target.closest('[data-edit-account]');
       if (editAcc) {
-        const acc = accountService.getById(editAcc.dataset.editAccount);
-        if (acc) this.openAccountModal(acc);
+        this.requireAuth(() => {
+          const acc = accountService.getById(editAcc.dataset.editAccount);
+          if (acc) this.openAccountModal(acc);
+        });
         return;
       }
 
       const delAcc = e.target.closest('[data-delete-account]');
       if (delAcc) {
-        const id = delAcc.dataset.deleteAccount;
-        const acc = accountService.getById(id);
-        if (!acc) return;
-        Modal.confirm(
-          '¿Eliminar cuenta?',
-          `Se eliminará la cuenta “${acc.name}”.`,
-          () => {
-            const res = accountService.deleteAccount(id);
-            if (res.success) {
-              Toast.success('Cuenta eliminada.');
-              this.refreshSelects();
-              this.renderAll();
-            } else {
-              Toast.error(res.error);
+        this.requireAuth(() => {
+          const id = delAcc.dataset.deleteAccount;
+          const acc = accountService.getById(id);
+          if (!acc) return;
+          Modal.confirm(
+            '¿Eliminar cuenta?',
+            `Se eliminará la cuenta “${acc.name}”.`,
+            () => {
+              const res = accountService.deleteAccount(id);
+              if (res.success) {
+                Toast.success('Cuenta eliminada.');
+                this.refreshSelects();
+                this.renderAll();
+              } else {
+                Toast.error(res.error);
+              }
             }
-          }
-        );
+          );
+        });
         return;
       }
 
       // Alcancías (Pockets)
       const addPocketBtn = e.target.closest('[data-add-pocket]');
       if (addPocketBtn) {
-        const accountId = addPocketBtn.dataset.addPocket;
-        this.openPocketModal(accountId);
+        this.requireAuth(() => {
+          const accountId = addPocketBtn.dataset.addPocket;
+          this.openPocketModal(accountId);
+        });
         return;
       }
 
       const depositPocketBtn = e.target.closest('[data-pocket-deposit]');
       if (depositPocketBtn) {
-        const [accId, pockId, pockName] = depositPocketBtn.dataset.pocketDeposit.split(':');
-        this.openPocketActionModal(accId, pockId, pockName || 'Alcancía', 'deposit');
+        this.requireAuth(() => {
+          const [accId, pockId, pockName] = depositPocketBtn.dataset.pocketDeposit.split(':');
+          this.openPocketActionModal(accId, pockId, pockName || 'Alcancía', 'deposit');
+        });
         return;
       }
 
       const withdrawPocketBtn = e.target.closest('[data-pocket-withdraw]');
       if (withdrawPocketBtn) {
-        const [accId, pockId, pockName] = withdrawPocketBtn.dataset.pocketWithdraw.split(':');
-        this.openPocketActionModal(accId, pockId, pockName || 'Alcancía', 'withdraw');
+        this.requireAuth(() => {
+          const [accId, pockId, pockName] = withdrawPocketBtn.dataset.pocketWithdraw.split(':');
+          this.openPocketActionModal(accId, pockId, pockName || 'Alcancía', 'withdraw');
+        });
         return;
       }
 
       const delPocketBtn = e.target.closest('[data-delete-pocket]');
       if (delPocketBtn) {
-        const [accId, pockId] = delPocketBtn.dataset.deletePocket.split(':');
-        Modal.confirm(
-          '¿Eliminar alcancía?',
-          'Se eliminará este bolsillo de ahorro. Si contiene saldo, se transferirá automáticamente a tu saldo disponible.',
-          () => {
-            const res = accountService.deletePocket(accId, pockId);
-            if (res.success) {
-              if (res.releasedBalance > 0) {
-                Toast.success(`Alcancía eliminada. Se reintegraron ${currencyService.format(res.releasedBalance)} a tu saldo disponible.`);
+        this.requireAuth(() => {
+          const [accId, pockId] = delPocketBtn.dataset.deletePocket.split(':');
+          Modal.confirm(
+            '¿Eliminar alcancía?',
+            'Se eliminará este bolsillo de ahorro. Si contiene saldo, se transferirá automáticamente a tu saldo disponible.',
+            () => {
+              const res = accountService.deletePocket(accId, pockId);
+              if (res.success) {
+                if (res.releasedBalance > 0) {
+                  Toast.success(`Alcancía eliminada. Se reintegraron ${currencyService.format(res.releasedBalance)} a tu saldo disponible.`);
+                } else {
+                  Toast.success('Alcancía eliminada.');
+                }
+                this.refreshSelects();
+                this.renderAll();
               } else {
-                Toast.success('Alcancía eliminada.');
+                Toast.error(res.error);
               }
-              this.refreshSelects();
-              this.renderAll();
-            } else {
-              Toast.error(res.error);
             }
-          }
-        );
+          );
+        });
         return;
       }
 
       // Categorías
       const editCat = e.target.closest('[data-edit-category]');
       if (editCat) {
-        const cat = categoryService.getById(editCat.dataset.editCategory);
-        if (cat) this.openCategoryModal(cat);
+        this.requireAuth(() => {
+          const cat = categoryService.getById(editCat.dataset.editCategory);
+          if (cat) this.openCategoryModal(cat);
+        });
         return;
       }
 
       const delCat = e.target.closest('[data-delete-category]');
       if (delCat) {
-        const id = delCat.dataset.deleteCategory;
-        const cat = categoryService.getById(id);
-        if (!cat) return;
-        Modal.confirm(
-          '¿Eliminar categoría?',
-          `Se eliminará la categoría “${cat.name}”.`,
-          () => {
-            const res = categoryService.deleteCategory(id);
-            if (res.success) {
-              Toast.success('Categoría eliminada.');
-              this.refreshSelects();
-              this.renderAll();
-            } else {
-              Toast.error(res.error);
+        this.requireAuth(() => {
+          const id = delCat.dataset.deleteCategory;
+          const cat = categoryService.getById(id);
+          if (!cat) return;
+          Modal.confirm(
+            '¿Eliminar categoría?',
+            `Se eliminará la categoría “${cat.name}”.`,
+            () => {
+              const res = categoryService.deleteCategory(id);
+              if (res.success) {
+                Toast.success('Categoría eliminada.');
+                this.refreshSelects();
+                this.renderAll();
+              } else {
+                Toast.error(res.error);
+              }
             }
-          }
-        );
+          );
+        });
         return;
       }
 
       // Presupuestos
       const editBgt = e.target.closest('[data-edit-budget]');
       if (editBgt) {
-        const bgt = budgetService.getById(editBgt.dataset.editBudget);
-        if (bgt) this.openBudgetModal(bgt);
+        this.requireAuth(() => {
+          const bgt = budgetService.getById(editBgt.dataset.editBudget);
+          if (bgt) this.openBudgetModal(bgt);
+        });
         return;
       }
 
       const delBgt = e.target.closest('[data-delete-budget]');
       if (delBgt) {
-        const id = delBgt.dataset.deleteBudget;
-        const bgt = budgetService.getById(id);
-        if (!bgt) return;
-        const cat = categoryService.getById(bgt.categoryId);
-        Modal.confirm(
-          '¿Eliminar presupuesto?',
-          `Se eliminará el presupuesto mensual de ${cat.name}.`,
-          () => {
-            budgetService.deleteBudget(id);
-            Toast.success('Presupuesto eliminado.');
-            this.renderAll();
-          }
-        );
+        this.requireAuth(() => {
+          const id = delBgt.dataset.deleteBudget;
+          const bgt = budgetService.getById(id);
+          if (!bgt) return;
+          const cat = categoryService.getById(bgt.categoryId);
+          Modal.confirm(
+            '¿Eliminar presupuesto?',
+            `Se eliminará el presupuesto mensual de ${cat.name}.`,
+            () => {
+              budgetService.deleteBudget(id);
+              Toast.success('Presupuesto eliminado.');
+              this.renderAll();
+            }
+          );
+        });
         return;
       }
 
       // Recurrentes
       const editRec = e.target.closest('[data-edit-recurring]');
       if (editRec) {
-        const rec = recurringService.getById(editRec.dataset.editRecurring);
-        if (rec) this.openRecurringModal(rec);
+        this.requireAuth(() => {
+          const rec = recurringService.getById(editRec.dataset.editRecurring);
+          if (rec) this.openRecurringModal(rec);
+        });
         return;
       }
 
       const delRec = e.target.closest('[data-delete-recurring]');
       if (delRec) {
-        const id = delRec.dataset.deleteRecurring;
-        const rec = recurringService.getById(id);
-        if (!rec) return;
-        Modal.confirm(
-          '¿Eliminar suscripción recurrente?',
-          `Se eliminará “${rec.title}”. Los movimientos pasados no se borrarán.`,
-          () => {
-            recurringService.deleteRecurring(id);
-            Toast.success('Suscripción eliminada.');
-            this.renderAll();
-          }
-        );
+        this.requireAuth(() => {
+          const id = delRec.dataset.deleteRecurring;
+          const rec = recurringService.getById(id);
+          if (!rec) return;
+          Modal.confirm(
+            '¿Eliminar suscripción recurrente?',
+            `Se eliminará “${rec.title}”. Los movimientos pasados no se borrarán.`,
+            () => {
+              recurringService.deleteRecurring(id);
+              Toast.success('Suscripción eliminada.');
+              this.renderAll();
+            }
+          );
+        });
         return;
       }
 
       const toggleRec = e.target.closest('[data-toggle-recurring]');
       if (toggleRec) {
-        const id = toggleRec.dataset.toggleRecurring;
-        recurringService.toggleActive(id);
-        this.renderAll();
+        this.requireAuth(() => {
+          const id = toggleRec.dataset.toggleRecurring;
+          recurringService.toggleActive(id);
+          this.renderAll();
+        });
         return;
       }
 
       const applyRec = e.target.closest('[data-apply-recurring]');
       if (applyRec) {
-        const id = applyRec.dataset.applyRecurring;
-        const res = recurringService.applyToMonth(id, this.selectedMonth);
-        if (res.success) {
-          Toast.success('Movimiento recurrente registrado en el mes actual.');
-          this.renderAll();
-        } else {
-          Toast.error(res.error);
-        }
+        this.requireAuth(() => {
+          const id = applyRec.dataset.applyRecurring;
+          const res = recurringService.applyToMonth(id, this.selectedMonth);
+          if (res.success) {
+            Toast.success('Movimiento recurrente registrado en el mes actual.');
+            this.renderAll();
+          } else {
+            Toast.error(res.error);
+          }
+        });
         return;
       }
     });
@@ -1492,7 +1644,7 @@ class App {
     document.addEventListener('keydown', e => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
         e.preventDefault();
-        this.openTransactionModal();
+        this.requireAuth(() => this.openTransactionModal());
       }
     });
 
