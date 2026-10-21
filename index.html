@@ -29,6 +29,15 @@
     }
   </script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <!-- Mapeo de módulos nativos para compatibilidad directa con Live Server (Zero-config) -->
+  <script type="importmap">
+    {
+      "imports": {
+        "firebase/app": "https://www.gstatic.com/firebasejs/11.4.0/firebase-app.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore.js"
+      }
+    }
+  </script>
 </head>
 <body>
   <div class="app-shell">
@@ -514,7 +523,7 @@
             <div class="settings-card-body">
               <div class="settings-action-row">
                 <button class="primary-button" id="btnExportJSON"><span class="material-symbols-rounded">file_download</span> Descargar Respaldo JSON</button>
-                <label class="outline-button file-button">
+                <label class="outline-button file-button" for="jsonFileInput">
                   <span class="material-symbols-rounded">file_upload</span> Restaurar Respaldo JSON
                   <input type="file" id="jsonFileInput" accept=".json" class="hidden-input" aria-label="Seleccionar archivo JSON de respaldo para restaurar" />
                 </label>
@@ -535,7 +544,7 @@
             <div class="settings-card-body">
               <div class="settings-action-row">
                 <button class="outline-button" id="btnExportCSV"><span class="material-symbols-rounded">file_download</span> Exportar todo a CSV</button>
-                <label class="primary-button file-button">
+                <label class="primary-button file-button" for="csvFileInput">
                   <span class="material-symbols-rounded">file_upload</span> Importar Extracto CSV
                   <input type="file" id="csvFileInput" accept=".csv" class="hidden-input" aria-label="Seleccionar archivo CSV para importar movimientos" />
                 </label>
@@ -604,7 +613,7 @@
           <h2 id="transactionModalTitle">Nuevo movimiento</h2>
           <p class="muted">Campos marcados con * son requeridos.</p>
         </div>
-        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar">
+        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar ventana de nuevo movimiento">
           <span class="material-symbols-rounded">close</span>
         </button>
       </div>
@@ -691,7 +700,7 @@
           <h2 id="accountModalTitle">Nueva cuenta</h2>
           <p class="muted">Configura una cuenta o billetera para seguir tus saldos.</p>
         </div>
-        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar">
+        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar ventana de cuenta">
           <span class="material-symbols-rounded">close</span>
         </button>
       </div>
@@ -761,7 +770,7 @@
           <h2 id="pocketModalTitle">Nueva alcancía</h2>
           <p class="muted">Aparta fondos de tu saldo disponible para metas o gastos específicos.</p>
         </div>
-        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar">
+        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar ventana de alcancía">
           <span class="material-symbols-rounded">close</span>
         </button>
       </div>
@@ -824,7 +833,7 @@
           <h2 id="pocketActionModalTitle">Meter dinero a la alcancía</h2>
           <p class="muted" id="pocketActionSubtitle">Mueve fondos entre el saldo disponible y la alcancía sin alterar tus gastos.</p>
         </div>
-        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar">
+        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar ventana de movimiento en alcancía">
           <span class="material-symbols-rounded">close</span>
         </button>
       </div>
@@ -835,17 +844,17 @@
 
         <!-- Epic 2: Selector de Origen de Fondos para Alcancía -->
         <div class="field-group" id="pocketFundingSourceGroup">
-          <label class="field-label">Origen de los fondos</label>
-          <div class="funding-options-grid">
-            <label class="funding-card-option">
-              <input type="radio" name="pocketFundingSource" value="available" checked aria-label="Desde el Saldo Disponible" />
+          <label class="field-label" id="pocketFundingSourceLabel">Origen de los fondos</label>
+          <div class="funding-options-grid" role="radiogroup" aria-labelledby="pocketFundingSourceLabel">
+            <label class="funding-card-option" for="pocketFundingAvailable">
+              <input type="radio" id="pocketFundingAvailable" name="pocketFundingSource" value="available" checked aria-label="Desde el Saldo Disponible" />
               <div class="funding-card-content">
                 <strong>Desde el Saldo Disponible</strong>
                 <small class="muted">Resta del disponible de la cuenta</small>
               </div>
             </label>
-            <label class="funding-card-option">
-              <input type="radio" name="pocketFundingSource" value="external" aria-label="Fondeo Externo o Ajuste Inicial" />
+            <label class="funding-card-option" for="pocketFundingExternal">
+              <input type="radio" id="pocketFundingExternal" name="pocketFundingSource" value="external" aria-label="Fondeo Externo o Ajuste Inicial" />
               <div class="funding-card-content">
                 <strong>Fondeo Externo / Ajuste Inicial</strong>
                 <small class="muted">Suma a alcancía y cuenta sin restar disponible</small>
@@ -882,7 +891,7 @@
           <h2 id="transferModalTitle">Transferir entre cuentas</h2>
           <p class="muted">Mueve fondos entre tus cuentas sin alterar tus ingresos o gastos.</p>
         </div>
-        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar">
+        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar ventana de transferencia">
           <span class="material-symbols-rounded">close</span>
         </button>
       </div>
@@ -929,7 +938,7 @@
           <h2 id="categoryModalTitle">Nueva categoría</h2>
           <p class="muted">Clasifica y organiza tus movimientos.</p>
         </div>
-        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar">
+        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar ventana de categoría">
           <span class="material-symbols-rounded">close</span>
         </button>
       </div>
@@ -1000,7 +1009,7 @@
           <h2 id="budgetModalTitle">Crear presupuesto</h2>
           <p class="muted">Define un límite de gasto mensual.</p>
         </div>
-        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar">
+        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar ventana de presupuesto">
           <span class="material-symbols-rounded">close</span>
         </button>
       </div>
@@ -1036,7 +1045,7 @@
           <h2 id="recurringModalTitle">Nueva suscripción</h2>
           <p class="muted">Programa pagos fijos para proyectar tu flujo mensual.</p>
         </div>
-        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar">
+        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar ventana de suscripción recurrente">
           <span class="material-symbols-rounded">close</span>
         </button>
       </div>
@@ -1107,7 +1116,7 @@
           <h2 id="userProfileModalTitle">Cuenta y Sincronización</h2>
           <p class="muted" style="font-size: 11px;">Administra tu sesión y respaldo en la nube</p>
         </div>
-        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar modal">
+        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar ventana de cuenta y sincronización">
           <span class="material-symbols-rounded">close</span>
         </button>
       </div>

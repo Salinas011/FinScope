@@ -73,32 +73,38 @@ export class TransactionsView {
 
       let typeLabel = 'Gasto';
       let typeClass = 'expense';
+      let typeIcon = 'arrow_upward';
       let amountColor = '';
       let sign = '−';
 
       if (isIncome) {
         typeLabel = 'Ingreso';
         typeClass = 'income';
+        typeIcon = 'arrow_downward';
         amountColor = 'income-amount';
         sign = '+';
       } else if (isTransfer) {
         typeLabel = 'Transferencia';
         typeClass = 'transfer';
+        typeIcon = 'sync_alt';
         amountColor = 'transfer-amount';
         sign = '⇄';
       } else if (isAdjustment) {
         typeLabel = 'Fondeo Alcancía';
         typeClass = 'adjustment';
+        typeIcon = 'savings';
         amountColor = 'income-amount';
         sign = '+';
       } else if (isPocketDeposit) {
         typeLabel = 'Aporte Alcancía';
         typeClass = 'transfer';
+        typeIcon = 'arrow_forward';
         amountColor = 'transfer-amount';
         sign = '→';
       } else if (isPocketWithdraw) {
         typeLabel = 'Retiro Alcancía';
         typeClass = 'transfer';
+        typeIcon = 'arrow_back';
         amountColor = '';
         sign = '←';
       }
@@ -121,7 +127,7 @@ export class TransactionsView {
             </div>
           </td>
           <td>
-            <span class="type-pill ${typeClass}">${typeLabel}</span>
+            <span class="type-pill ${typeClass}"><span class="material-symbols-rounded" aria-hidden="true">${typeIcon}</span> ${typeLabel}</span>
           </td>
           <td>
             <span class="category-chip" style="color:${cat.color}">

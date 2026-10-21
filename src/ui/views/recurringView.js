@@ -69,17 +69,18 @@ export class RecurringView {
             <div class="recurring-due">
               <span>📅 Cobro: Día ${r.dueDay} de cada mes</span>
               <span class="badge ${r.active ? 'badge-active' : 'badge-paused'}">
-                ${r.active ? 'Activo' : 'Pausado'}
+                <span class="material-symbols-rounded" aria-hidden="true">${r.active ? 'check_circle' : 'pause_circle'}</span>
+                <span>${r.active ? 'Activo' : 'Pausado'}</span>
               </span>
             </div>
             ${r.note ? `<p class="muted recurring-note">${this.escape(r.note)}</p>` : ''}
           </div>
 
           <div class="recurring-foot">
-            <button class="outline-button toggle-rec-btn" data-toggle-recurring="${r.id}">
+            <button class="outline-button toggle-rec-btn" data-toggle-recurring="${r.id}" aria-label="${r.active ? 'Pausar cobro recurrente de' : 'Reanudar cobro recurrente de'} ${this.escape(r.title)}">
               ${r.active ? 'Pausar' : 'Reanudar'}
             </button>
-            <button class="primary-button apply-rec-btn" data-apply-recurring="${r.id}" ${isApplied ? 'disabled' : ''}>
+            <button class="primary-button apply-rec-btn" data-apply-recurring="${r.id}" ${isApplied ? 'disabled' : ''} aria-label="Registrar ahora el cobro recurrente de ${this.escape(r.title)}">
               ${isApplied ? '✓ Aplicado este mes' : '＋ Registrar ahora'}
             </button>
           </div>

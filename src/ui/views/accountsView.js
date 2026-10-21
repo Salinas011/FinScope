@@ -145,7 +145,7 @@ export class AccountsView {
           <div class="pockets-container">
             <div class="pockets-header">
               <span>Alcancías (${pockets.length})</span>
-              <button class="btn-add-pocket" data-add-pocket="${a.id}">
+              <button class="btn-add-pocket" data-add-pocket="${a.id}" aria-label="Crear nueva alcancía en cuenta ${this.escape(a.name)}">
                 <span class="material-symbols-rounded">add</span> Nueva alcancía
               </button>
             </div>
