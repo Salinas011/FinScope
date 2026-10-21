@@ -75,7 +75,7 @@ class App {
         Toast.info('Recuperando tus finanzas desde Cloud Firestore...', 3500);
       }
       try {
-        const uid = currentUser.uid || currentUser.email || currentUser.id;
+        const uid = currentUser.uid || currentUser.id || currentUser.email;
         await firestoreService.pullAllUserData(uid);
         if (isLocalEmpty && store.transactions.length > 0) {
           Toast.success('¡Tus finanzas se han recuperado exitosamente!');
@@ -120,6 +120,22 @@ class App {
       this.renderAll();
     });
 
+    // Escuchar inicio de sesión para refrescar el almacén y re-renderizar todas las vistas
+    eventBus.on('auth:login_success', () => {
+      this.refreshSelects();
+      this.renderAll();
+    });
+
+    eventBus.on('auth:login', () => {
+      this.refreshSelects();
+      this.renderAll();
+    });
+
+    eventBus.on('auth:logout', () => {
+      this.refreshSelects();
+      this.renderAll();
+    });
+
     // Escuchar alertas de almacenamiento
     eventBus.on('error:storage', err => {
       Toast.error(err);
@@ -142,13 +158,15 @@ class App {
 
     // Suscribirse a cambios en el estado de autenticación de Google
     let hasInitializedAuth = false;
-    authService.subscribe(user => {
+    authService.subscribe(async user => {
       this.renderAuthUI(user);
       if (user) {
-        firestoreService.attachUser(user);
+        await firestoreService.attachUser(user);
       } else {
         firestoreService.detachUser();
       }
+      this.refreshSelects();
+      this.renderAll();
       if (hasInitializedAuth && user) {
         Toast.success(`¡Bienvenido, ${user.givenName || user.name || 'Usuario'}!`);
       }

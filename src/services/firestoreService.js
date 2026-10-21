@@ -20,15 +20,30 @@ import {
 import { store } from '../core/store.js';
 import { eventBus } from '../core/eventBus.js';
 import { StorageService } from '../core/storage.js';
+import { DEFAULT_ACCOUNTS } from '../core/constants.js';
 
 export const firebaseConfig = {
-  apiKey: typeof import.meta !== 'undefined' ? import.meta.env?.VITE_FIREBASE_API_KEY : undefined,
-  authDomain: typeof import.meta !== 'undefined' ? import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN : undefined,
-  projectId: typeof import.meta !== 'undefined' ? import.meta.env?.VITE_FIREBASE_PROJECT_ID : undefined,
-  storageBucket: typeof import.meta !== 'undefined' ? import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET : undefined,
-  messagingSenderId: typeof import.meta !== 'undefined' ? import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID : undefined,
-  appId: typeof import.meta !== 'undefined' ? import.meta.env?.VITE_FIREBASE_APP_ID : undefined,
-  measurementId: typeof import.meta !== 'undefined' ? import.meta.env?.VITE_FIREBASE_MEASUREMENT_ID : undefined
+  apiKey:
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_API_KEY) ||
+    'AIzaSyBv7PPxra44OhQrEShtZ-2uYIs2iYpabVo',
+  authDomain:
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN) ||
+    'finscope-7c0a8.firebaseapp.com',
+  projectId:
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_PROJECT_ID) ||
+    'finscope-7c0a8',
+  storageBucket:
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET) ||
+    'finscope-7c0a8.firebasestorage.app',
+  messagingSenderId:
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID) ||
+    '1033760580508',
+  appId:
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_APP_ID) ||
+    '1:1033760580508:web:c3e229a578fa8c8c195e59',
+  measurementId:
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_MEASUREMENT_ID) ||
+    'G-T1S3BY10DM'
 };
 
 const isFirebaseConfigured = Boolean(
@@ -58,6 +73,7 @@ class FirestoreService {
     this.saveTimeout = null;
     this.syncStatus = 'disconnected'; // 'connected' | 'syncing' | 'disconnected' | 'error'
     this.listeners = [];
+    this._activePullPromise = null;
 
     // Monitoreo de conectividad de red nativo
     if (typeof window !== 'undefined') {
@@ -95,7 +111,7 @@ class FirestoreService {
       return;
     }
 
-    const uid = user.id || user.uid || user.email;
+    const uid = user.uid || user.id || user.sub || user.email;
     if (!uid) {
       this.detachUser();
       return;
@@ -167,7 +183,7 @@ class FirestoreService {
    */
   async pullAllUserData(userId, mockData = null) {
     const uid = typeof userId === 'object' && userId !== null
-      ? (userId.uid || userId.id || userId.email)
+      ? (userId.uid || userId.id || userId.sub || userId.email)
       : (userId || this.currentUserId);
 
     if (!uid) {
@@ -176,183 +192,214 @@ class FirestoreService {
     }
 
     this.currentUserId = uid;
-    this.setSyncStatus('syncing');
 
-    let remoteCollections = {};
-    let remoteMeta = {};
-
-    if (mockData) {
-      remoteCollections = {
-        accounts: mockData.accounts || [],
-        categories: mockData.categories || [],
-        transactions: mockData.transactions || [],
-        budgets: mockData.budgets || [],
-        recurring: mockData.recurring || []
-      };
-      remoteMeta = mockData.meta || {};
-    } else {
-      if (!db) {
-        console.warn('[Firestore] Firebase no disponible para pullAllUserData. Operando localmente.');
-        this.setSyncStatus('disconnected');
-        return { success: false, reason: 'no_db', pulledCount: 0 };
-      }
-
-      try {
-        // 1. Obtener metadatos raíz (currency, theme, settings)
-        try {
-          const userDocRef = doc(db, 'users', uid);
-          const userDocSnap = await getDoc(userDocRef);
-          if (userDocSnap.exists()) {
-            remoteMeta = userDocSnap.data() || {};
-          }
-        } catch (metaErr) {
-          console.warn('[Firestore] No se pudieron leer metadatos de usuario:', metaErr);
-        }
-
-        // 2. Fetch granular sobre cada subcolección
-        for (const collName of SYNCED_COLLECTIONS) {
-          const collRef = collection(db, 'users', uid, collName);
-          const snapshot = await getDocs(collRef);
-          const docs = [];
-          snapshot.forEach(docSnap => {
-            docs.push({ id: docSnap.id, ...docSnap.data() });
-          });
-          remoteCollections[collName] = docs;
-        }
-      } catch (err) {
-        console.error('[Firestore] Error en pullAllUserData durante fetch remoto:', err);
-        this.setSyncStatus('error');
-        return { success: false, error: err.message, pulledCount: 0 };
-      }
+    if (this._activePullPromise && !mockData) {
+      return this._activePullPromise;
     }
 
-    const currentState = store.getState();
-    const isLocalEmpty = (currentState.transactions || []).length === 0;
+    const executePull = async () => {
+      this.setSyncStatus('syncing');
 
-    let totalPulled = 0;
-    const mergedData = {};
+      let remoteCollections = {};
+      let remoteMeta = {};
 
-    for (const collName of SYNCED_COLLECTIONS) {
-      const remoteItems = remoteCollections[collName] || [];
-      const localItems = currentState[collName] || [];
-
-      totalPulled += remoteItems.length;
-
-      // Si el almacenamiento local estaba en cero (ej. caché borrada físicamente)
-      if (isLocalEmpty) {
-        if (collName === 'accounts') {
-          // Si la nube tiene cuentas del usuario, sustituyen los defaults en blanco
-          if (remoteItems.length > 0) {
-            mergedData.accounts = remoteItems
-              .filter(item => !item.deletedAt)
-              .map(item => ({ ...item, syncStatus: 'synced' }));
-          } else {
-            mergedData.accounts = localItems;
-          }
-        } else if (collName === 'categories') {
-          // Si la nube tiene categorías, sustituyen o conservan DEFAULT_CATEGORIES
-          if (remoteItems.length > 0) {
-            mergedData.categories = remoteItems
-              .filter(item => !item.deletedAt)
-              .map(item => ({ ...item, syncStatus: 'synced' }));
-          } else {
-            mergedData.categories = localItems;
-          }
-        } else {
-          // Para transactions, budgets, recurring
-          mergedData[collName] = remoteItems
-            .filter(item => !item.deletedAt)
-            .map(item => ({ ...item, syncStatus: 'synced' }));
-        }
+      if (mockData) {
+        remoteCollections = {
+          accounts: mockData.accounts || [],
+          categories: mockData.categories || [],
+          transactions: mockData.transactions || [],
+          budgets: mockData.budgets || [],
+          recurring: mockData.recurring || []
+        };
+        remoteMeta = mockData.meta || {};
       } else {
-        // Resolución Last-Write-Wins (LWW) registro a registro
-        const localMap = new Map(localItems.map(item => [item.id, item]));
-        const remoteMap = new Map(remoteItems.map(item => [item.id, item]));
-        const mergedList = [];
+        if (!db) {
+          console.warn('[Firestore] Firebase no disponible para pullAllUserData. Operando localmente.');
+          this.setSyncStatus('disconnected');
+          return { success: false, reason: 'no_db', pulledCount: 0 };
+        }
 
-        // Evaluar registros remotos contra locales
-        for (const [id, remoteItem] of remoteMap.entries()) {
-          const localItem = localMap.get(id);
+        try {
+          // 1. Obtener metadatos raíz (currency, theme, settings)
+          try {
+            const userDocRef = doc(db, 'users', this.currentUserId);
+            const userDocSnap = await getDoc(userDocRef);
+            if (userDocSnap.exists()) {
+              remoteMeta = userDocSnap.data() || {};
+            }
+          } catch (metaErr) {
+            console.warn('[Firestore] No se pudieron leer metadatos de usuario:', metaErr);
+          }
 
-          if (!localItem) {
-            // No existe localmente: incorporar si no está eliminado
-            if (!remoteItem.deletedAt) {
-              mergedList.push({ ...remoteItem, syncStatus: 'synced' });
+          // 2. Fetch granular sobre cada subcolección
+          for (const collName of SYNCED_COLLECTIONS) {
+            const collRef = collection(db, 'users', this.currentUserId, collName);
+            const snapshot = await getDocs(collRef);
+            const docs = [];
+            snapshot.forEach(docSnap => {
+              docs.push({ id: docSnap.id, ...docSnap.data() });
+            });
+            remoteCollections[collName] = docs;
+          }
+        } catch (err) {
+          console.error('[Firestore] Error en pullAllUserData durante fetch remoto:', err);
+          this.setSyncStatus('error');
+          return { success: false, error: err.message, pulledCount: 0 };
+        }
+      }
+
+      const currentState = store.getState();
+      const isLocalEmpty = (currentState.transactions || []).length === 0;
+
+      const defaultAccountIds = new Set(DEFAULT_ACCOUNTS.map(a => a.id));
+      const isBlankDefaultAccount = (acc) => {
+        return defaultAccountIds.has(acc.id) &&
+          Number(acc.initialBalance || 0) === 0 &&
+          (!acc.pockets || acc.pockets.length === 0);
+      };
+
+      const isLocalAccountsOnlyDefaults = (currentState.accounts || []).length === 0 ||
+        (currentState.accounts || []).every(acc => isBlankDefaultAccount(acc));
+
+      let totalPulled = 0;
+      const mergedData = {};
+
+      for (const collName of SYNCED_COLLECTIONS) {
+        const remoteItems = remoteCollections[collName] || [];
+        const localItems = currentState[collName] || [];
+
+        totalPulled += remoteItems.length;
+
+        // Si el almacenamiento local estaba en blanco o solo contenía cuentas por defecto
+        if (isLocalEmpty || (collName === 'accounts' && isLocalAccountsOnlyDefaults)) {
+          if (collName === 'accounts') {
+            // Si la nube tiene cuentas del usuario, reemplazan por completo las cuentas vacías por defecto
+            if (remoteItems.length > 0) {
+              mergedData.accounts = remoteItems
+                .filter(item => !item.deletedAt)
+                .map(item => ({ ...item, syncStatus: 'synced' }));
+            } else {
+              mergedData.accounts = localItems;
+            }
+          } else if (collName === 'categories') {
+            // Si la nube tiene categorías, sustituyen o conservan DEFAULT_CATEGORIES
+            if (remoteItems.length > 0) {
+              mergedData.categories = remoteItems
+                .filter(item => !item.deletedAt)
+                .map(item => ({ ...item, syncStatus: 'synced' }));
+            } else {
+              mergedData.categories = localItems;
             }
           } else {
-            // Existe en ambos: resolver conflicto con LWW por updatedAt
-            const remoteTime = Number(remoteItem.updatedAt) || 0;
-            const localTime = Number(localItem.updatedAt) || 0;
+            // Para transactions, budgets, recurring
+            mergedData[collName] = remoteItems
+              .filter(item => !item.deletedAt)
+              .map(item => ({ ...item, syncStatus: 'synced' }));
+          }
+        } else {
+          // Resolución Last-Write-Wins (LWW) registro a registro
+          const localMap = new Map(localItems.map(item => [item.id, item]));
+          const remoteMap = new Map(remoteItems.map(item => [item.id, item]));
+          const mergedList = [];
 
-            if (remoteTime >= localTime) {
+          // Evaluar registros remotos contra locales
+          for (const [id, remoteItem] of remoteMap.entries()) {
+            const localItem = localMap.get(id);
+
+            if (!localItem) {
+              // No existe localmente: incorporar si no está eliminado
               if (!remoteItem.deletedAt) {
                 mergedList.push({ ...remoteItem, syncStatus: 'synced' });
               }
             } else {
+              // Existe en ambos: resolver conflicto con LWW por updatedAt
+              const remoteTime = Number(remoteItem.updatedAt) || 0;
+              const localTime = Number(localItem.updatedAt) || 0;
+
+              if (remoteTime >= localTime) {
+                if (!remoteItem.deletedAt) {
+                  mergedList.push({ ...remoteItem, syncStatus: 'synced' });
+                }
+              } else {
+                if (!localItem.deletedAt) {
+                  mergedList.push(localItem);
+                }
+              }
+            }
+          }
+
+          // Evaluar registros locales que no están en remoto
+          for (const [id, localItem] of localMap.entries()) {
+            if (!remoteMap.has(id)) {
+              // Descartar cuentas en cero por defecto creadas por getBlankState si la nube ya tiene cuentas
+              if (collName === 'accounts' && remoteItems.length > 0 && isBlankDefaultAccount(localItem)) {
+                continue;
+              }
               if (!localItem.deletedAt) {
                 mergedList.push(localItem);
               }
             }
           }
-        }
 
-        // Evaluar registros locales que no están en remoto
-        for (const [id, localItem] of localMap.entries()) {
-          if (!remoteMap.has(id)) {
-            if (!localItem.deletedAt) {
-              mergedList.push(localItem);
-            }
-          }
+          mergedData[collName] = mergedList;
         }
-
-        mergedData[collName] = mergedList;
       }
+
+      // 4. Construir estado unificado consolidado
+      const nextState = {
+        ...currentState,
+        currency: remoteMeta.currency || currentState.currency || 'COP',
+        theme: remoteMeta.theme || currentState.theme || 'light',
+        settings: { ...currentState.settings, ...(remoteMeta.settings || {}) },
+        accounts: (mergedData.accounts !== undefined)
+          ? mergedData.accounts
+          : (currentState.accounts || []),
+        categories: (mergedData.categories !== undefined)
+          ? mergedData.categories
+          : (currentState.categories || []),
+        transactions: mergedData.transactions !== undefined ? mergedData.transactions : [],
+        budgets: mergedData.budgets !== undefined ? mergedData.budgets : [],
+        recurring: mergedData.recurring !== undefined ? mergedData.recurring : [],
+        version: 3
+      };
+
+      // 5. Guardado atómico en IndexedDB y actualización del store reactivo
+      this.isApplyingRemoteChange = true;
+      await store.replaceState(nextState);
+      this.isApplyingRemoteChange = false;
+
+      // 6. Notificar a toda la aplicación para re-renderizado automático
+      eventBus.emit('store:synced', {
+        source: 'firestore:pullAllUserData',
+        userId: uid,
+        pulledCount: totalPulled,
+        state: nextState
+      });
+
+      eventBus.emit('state:changed', {
+        state: nextState,
+        actionTag: 'firestore:pullAllUserData'
+      });
+
+      this.setSyncStatus('connected');
+      console.log(`[Firestore] pullAllUserData completado. ${totalPulled} registros remotos procesados.`);
+
+      return {
+        success: true,
+        pulledCount: totalPulled,
+        state: nextState
+      };
+    };
+
+    if (mockData) {
+      return await executePull();
     }
 
-    // 4. Construir estado unificado consolidado
-    const nextState = {
-      ...currentState,
-      currency: remoteMeta.currency || currentState.currency || 'COP',
-      theme: remoteMeta.theme || currentState.theme || 'light',
-      settings: { ...currentState.settings, ...(remoteMeta.settings || {}) },
-      accounts: (mergedData.accounts && mergedData.accounts.length > 0)
-        ? mergedData.accounts
-        : currentState.accounts,
-      categories: (mergedData.categories && mergedData.categories.length > 0)
-        ? mergedData.categories
-        : currentState.categories,
-      transactions: mergedData.transactions || [],
-      budgets: mergedData.budgets || [],
-      recurring: mergedData.recurring || [],
-      version: 3
-    };
-
-    // 5. Guardado atómico en IndexedDB y actualización del store reactivo
-    this.isApplyingRemoteChange = true;
-    await store.replaceState(nextState);
-    this.isApplyingRemoteChange = false;
-
-    // 6. Notificar a toda la aplicación para re-renderizado automático
-    eventBus.emit('store:synced', {
-      source: 'firestore:pullAllUserData',
-      userId: uid,
-      pulledCount: totalPulled,
-      state: nextState
+    this._activePullPromise = executePull().finally(() => {
+      this._activePullPromise = null;
     });
 
-    eventBus.emit('state:changed', {
-      state: nextState,
-      actionTag: 'firestore:pullAllUserData'
-    });
-
-    this.setSyncStatus('connected');
-    console.log(`[Firestore] pullAllUserData completado. ${totalPulled} registros remotos procesados.`);
-
-    return {
-      success: true,
-      pulledCount: totalPulled,
-      state: nextState
-    };
+    return await this._activePullPromise;
   }
 
   /**

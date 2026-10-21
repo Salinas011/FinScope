@@ -4,6 +4,8 @@
  */
 
 import { store } from '../core/store.js';
+import { eventBus } from '../core/eventBus.js';
+import { firestoreService } from './firestoreService.js';
 
 export const GOOGLE_CLIENT_ID =
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GOOGLE_CLIENT_ID) ||
@@ -26,8 +28,12 @@ class AuthService {
       const data = localStorage.getItem(AUTH_STORAGE_KEY);
       if (!data) return null;
       const user = JSON.parse(data);
-      if (user && !user.uid && user.id) {
-        user.uid = user.id;
+      if (user) {
+        const uid = user.uid || user.id || user.sub || user.email;
+        if (uid) {
+          user.uid = uid;
+          user.id = uid;
+        }
       }
       return user;
     } catch (e) {
@@ -135,7 +141,7 @@ class AuthService {
   /**
    * Manejador del callback tras autenticación exitosa en Google.
    */
-  handleCredentialResponse(response) {
+  async handleCredentialResponse(response) {
     if (!response?.credential) {
       console.error('Respuesta de Google sin credencial válida.');
       return;
@@ -144,20 +150,32 @@ class AuthService {
     const payload = this.parseJwt(response.credential);
     if (!payload) return;
 
+    const uid = payload.sub || payload.uid || payload.email;
     this.currentUser = {
-      id: payload.sub,
-      uid: payload.sub,
+      ...payload,
+      uid,
+      id: uid,
       name: payload.name,
       email: payload.email,
       picture: payload.picture,
-      givenName: payload.given_name,
-      familyName: payload.family_name,
+      givenName: payload.given_name || payload.givenName,
+      familyName: payload.family_name || payload.familyName,
       token: response.credential,
       loggedInAt: new Date().toISOString()
     };
 
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(this.currentUser));
     this.notify();
+
+    // Rehidratación inmediata desde Firestore tras inicio de sesión interactivo
+    try {
+      await firestoreService.pullAllUserData(this.currentUser.uid);
+    } catch (error) {
+      console.error('[AuthService] Error durante pullAllUserData tras login:', error);
+    }
+
+    eventBus.emit('auth:login_success', this.currentUser);
+    eventBus.emit('auth:login', this.currentUser);
   }
 
   /**
@@ -165,7 +183,7 @@ class AuthService {
    * y restablece el estado para operar en "Modo Invitado" (Guest Mode).
    */
   async signOut() {
-    if (this.currentUser?.email && window.google?.accounts?.id) {
+    if (this.currentUser?.email && typeof window !== 'undefined' && window.google?.accounts?.id) {
       window.google.accounts.id.disableAutoSelect();
       try {
         window.google.accounts.id.revoke(this.currentUser.email, () => {
@@ -183,6 +201,7 @@ class AuthService {
     await store.clearForGuestMode();
 
     this.notify();
+    eventBus.emit('auth:logout');
   }
 
   isAuthenticated() {

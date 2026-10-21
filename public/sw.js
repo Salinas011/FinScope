@@ -4,13 +4,12 @@
  * Estrategia: Cache-First con fallback a Red para el App Shell y activos estáticos.
  */
 
-const CACHE_NAME = 'finscope-cache-v3.1.0';
+const CACHE_NAME = 'finscope-cache-v3.1.1';
 
 // App Shell y recursos esenciales a precachear
 const PRECACHE_ASSETS = [
   './',
   './index.html',
-  './styles.css',
   './manifest.json',
   './icons/icon-192x192.png',
   './icons/icon-512x512.png'
@@ -45,7 +44,7 @@ self.addEventListener('activate', event => {
   );
 });
 
-// 3. Estrategia de Fetch: Cache-First, fallback a Network
+// 3. Estrategia de Fetch
 self.addEventListener('fetch', event => {
   const request = event.request;
 
@@ -64,11 +63,38 @@ self.addEventListener('fetch', event => {
     return;
   }
 
+  // 3.1 Peticiones de Navegación (HTML / App Shell): Network-First con fallback a caché
+  // Garantiza que tras cada nuevo despliegue de Vite el usuario reciba el HTML más reciente
+  // con los hashes de scripts actualizados, evitando páginas congeladas o desactualizadas.
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then(networkResponse => {
+          if (networkResponse && networkResponse.status === 200) {
+            const copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
+          }
+          return networkResponse;
+        })
+        .catch(async () => {
+          const cached = (await caches.match('./index.html')) || (await caches.match('./')) || (await caches.match(request));
+          if (cached) return cached;
+          return new Response('FinScope está fuera de línea.', {
+            status: 503,
+            statusText: 'Service Unavailable',
+            headers: new Headers({ 'Content-Type': 'text/plain; charset=utf-8' })
+          });
+        })
+    );
+    return;
+  }
+
+  // 3.2 Activos estáticos, chunks JS y CSS: Cache-First con Stale-While-Revalidate
   event.respondWith(
     caches.match(request).then(cachedResponse => {
       if (cachedResponse) {
         // Retornar de caché inmediatamente (Cache-First)
-        // Actualizar en segundo plano si es posible (Stale-While-Revalidate selectivo)
+        // Actualizar en segundo plano si es posible (Stale-While-Revalidate)
         fetch(request)
           .then(networkResponse => {
             if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
@@ -95,10 +121,6 @@ self.addEventListener('fetch', event => {
           return networkResponse;
         })
         .catch(() => {
-          // Si es una petición de navegación (HTML) y la red falló, servir index.html de caché
-          if (request.mode === 'navigate') {
-            return caches.match('./index.html') || caches.match('./');
-          }
           return new Response('Recurso no disponible sin conexión.', {
             status: 503,
             statusText: 'Service Unavailable',
