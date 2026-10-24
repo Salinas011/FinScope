@@ -18,6 +18,7 @@ import { Toast } from './ui/toast.js';
 import { Modal } from './ui/modal.js';
 import { getMaterialIconName } from './ui/icons.js';
 import { DashboardView } from './ui/views/dashboardView.js';
+import { initAmountInputs, formatAmountValue } from './ui/amountFormatter.js';
 
 import { router } from './ui/router.js';
 
@@ -89,6 +90,7 @@ class App {
 
     // Vincular eventos y vistas
     this.bindEvents();
+    initAmountInputs();
     await router.init({ getSelectedMonth: () => this.selectedMonth });
     this.refreshSelects();
     this.renderAll();
@@ -97,6 +99,12 @@ class App {
     store.subscribe(() => {
       this.refreshSelects();
       this.renderActiveView();
+    });
+
+    // Re-renderizado al reasignar categorías
+    eventBus.on('transactions:reassigned', () => {
+      this.refreshSelects();
+      this.renderAll();
     });
 
     // Re-renderizado completo al recibir evento de rehidratación o sincronización en la nube
@@ -496,11 +504,14 @@ class App {
     if (txCatSelect) {
       const filteredCats = categories.filter(c => c.type === txType);
       const prevVal = txCatSelect.value;
-      txCatSelect.innerHTML = filteredCats.map(c => `
+      const placeholder = '<option value="" disabled selected hidden>Selecciona una categoría...</option>';
+      txCatSelect.innerHTML = placeholder + filteredCats.map(c => `
         <option value="${c.id}">${c.name}</option>
       `).join('');
-      if (filteredCats.some(c => c.id === prevVal)) {
+      if (prevVal && filteredCats.some(c => c.id === prevVal)) {
         txCatSelect.value = prevVal;
+      } else {
+        txCatSelect.value = '';
       }
     }
 
@@ -539,10 +550,15 @@ class App {
     if (bgtCatSelect) {
       const expenseCats = categories.filter(c => c.type === 'expense');
       const prev = bgtCatSelect.value;
-      bgtCatSelect.innerHTML = expenseCats.map(c => `
+      const placeholder = '<option value="" disabled selected hidden>Selecciona una categoría...</option>';
+      bgtCatSelect.innerHTML = placeholder + expenseCats.map(c => `
         <option value="${c.id}">${c.name}</option>
       `).join('');
-      if (expenseCats.some(c => c.id === prev)) bgtCatSelect.value = prev;
+      if (prev && expenseCats.some(c => c.id === prev)) {
+        bgtCatSelect.value = prev;
+      } else {
+        bgtCatSelect.value = '';
+      }
     }
 
     // 6. Selectores en modal de transferencia
@@ -561,7 +577,14 @@ class App {
     const recCatSelect = document.getElementById('recurringCategory');
     const recAccSelect = document.getElementById('recurringAccount');
     if (recCatSelect) {
-      recCatSelect.innerHTML = categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+      const prev = recCatSelect.value;
+      const placeholder = '<option value="" disabled selected hidden>Selecciona una categoría...</option>';
+      recCatSelect.innerHTML = placeholder + categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+      if (prev && categories.some(c => c.id === prev)) {
+        recCatSelect.value = prev;
+      } else {
+        recCatSelect.value = '';
+      }
     }
     if (recAccSelect) {
       recAccSelect.innerHTML = accounts.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
@@ -636,7 +659,7 @@ class App {
     const methodInput = document.getElementById('transactionMethod');
 
     if (titleInput) titleInput.value = transaction?.title || '';
-    if (amountInput) amountInput.value = transaction ? currencyService.fromCents(transaction.amount) : '';
+    if (amountInput) amountInput.value = transaction ? formatAmountValue(currencyService.fromCents(transaction.amount)) : '';
     const localToday = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
     if (dateInput) dateInput.value = (transaction && !isDuplicate) ? (transaction.date || localToday) : localToday;
     if (noteInput) noteInput.value = transaction?.note || '';
@@ -654,6 +677,8 @@ class App {
       if (pocketSelect && transaction.pocketId) {
         pocketSelect.value = transaction.pocketId;
       }
+    } else {
+      if (catSelect) catSelect.value = '';
     }
 
     const submitBtn = document.querySelector('#transactionForm button[type=submit]');
@@ -684,7 +709,7 @@ class App {
     if (idInput) idInput.value = account?.id || '';
     if (nameInput) nameInput.value = account?.name || '';
     if (typeInput) typeInput.value = account?.type || 'bank';
-    if (balanceInput) balanceInput.value = account ? currencyService.fromCents(account.initialBalance || 0) : 0;
+    if (balanceInput) balanceInput.value = account?.initialBalance ? formatAmountValue(currencyService.fromCents(account.initialBalance)) : 0;
     if (colorInput) colorInput.value = account?.color || '#18181b';
     if (iconInput) iconInput.value = getMaterialIconName(account?.icon, 'account_balance');
 
@@ -710,7 +735,7 @@ class App {
     const iconInput = document.getElementById('pocketIcon');
 
     if (nameInput) nameInput.value = pocket?.name || '';
-    if (targetInput) targetInput.value = pocket?.targetAmount ? currencyService.fromCents(pocket.targetAmount) : '';
+    if (targetInput) targetInput.value = pocket?.targetAmount ? formatAmountValue(currencyService.fromCents(pocket.targetAmount)) : '';
     if (colorInput) colorInput.value = pocket?.color || '#3f3f46';
     if (iconInput) iconInput.value = pocket?.icon || 'savings';
 
@@ -804,8 +829,8 @@ class App {
     const noteInput = document.getElementById('budgetNote');
 
     if (idInput) idInput.value = budget?.id || '';
-    if (catSelect && budget) catSelect.value = budget.categoryId;
-    if (limitInput) limitInput.value = budget?.limit || '';
+    if (catSelect) catSelect.value = budget ? budget.categoryId : '';
+    if (limitInput) limitInput.value = budget?.limit ? formatAmountValue(currencyService.fromCents(budget.limit)) : '';
     if (noteInput) noteInput.value = budget?.note || '';
 
     Modal.open('#budgetModal');
@@ -832,14 +857,56 @@ class App {
 
     if (idInput) idInput.value = recurring?.id || '';
     if (titleInput) titleInput.value = recurring?.title || '';
-    if (amountInput) amountInput.value = recurring?.amount || '';
+    if (amountInput) amountInput.value = recurring?.amount ? formatAmountValue(currencyService.fromCents(recurring.amount)) : '';
     if (freqSelect) freqSelect.value = recurring?.frequency || 'monthly';
     if (dayInput) dayInput.value = recurring?.dueDay || 1;
-    if (catSelect && recurring) catSelect.value = recurring.categoryId;
+    if (catSelect) catSelect.value = recurring ? recurring.categoryId : '';
     if (accSelect && recurring) accSelect.value = recurring.accountId;
     if (noteInput) noteInput.value = recurring?.note || '';
 
     Modal.open('#recurringModal');
+  }
+
+  /**
+   * Abre el diálogo de reasignación masiva de movimientos entre categorías.
+   * @param {string} sourceCategoryId
+   */
+  openReassignCategoryModal(sourceCategoryId) {
+    const cat = categoryService.getById(sourceCategoryId);
+    if (!cat) return;
+
+    const activeTxs = (store.transactions || []).filter(t => !t.deletedAt && t.categoryId === sourceCategoryId);
+    const count = activeTxs.length;
+
+    const form = document.getElementById('reassignCategoryForm');
+    if (form) form.reset();
+
+    const sourceIdInput = document.getElementById('reassignSourceCategoryId');
+    const sourceNameEl = document.getElementById('reassignSourceCategoryName');
+    const sourceCountEl = document.getElementById('reassignSourceCountText');
+    const targetSelect = document.getElementById('reassignTargetCategory');
+    const submitBtn = document.getElementById('reassignSubmitBtn');
+
+    if (sourceIdInput) sourceIdInput.value = sourceCategoryId;
+    if (sourceNameEl) sourceNameEl.textContent = `${cat.name} · ${cat.type === 'income' ? 'Ingreso' : 'Gasto'}`;
+    if (sourceCountEl) {
+      sourceCountEl.textContent = `${count} ${count === 1 ? 'movimiento activo asociado' : 'movimientos activos asociados'}`;
+    }
+
+    if (targetSelect) {
+      // Categorías de destino del mismo tipo excluyendo la de origen
+      const candidates = categoryService.getAll().filter(c => c.id !== sourceCategoryId && c.type === cat.type);
+      targetSelect.innerHTML = '<option value="" disabled selected hidden>Selecciona una categoría de destino...</option>' +
+        candidates.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+      targetSelect.value = '';
+    }
+
+    if (submitBtn) {
+      submitBtn.innerHTML = `Mover ${count} ${count === 1 ? 'movimiento' : 'movimientos'} <span class="material-symbols-rounded" style="font-size: 15px; vertical-align: middle;">arrow_forward</span>`;
+      submitBtn.disabled = count === 0;
+    }
+
+    Modal.open('#reassignCategoryModal');
   }
 
   // --- Manejadores de Eventos ---
@@ -972,7 +1039,15 @@ class App {
       const title = document.getElementById('transactionTitle').value;
       const amount = document.getElementById('transactionAmount').value;
       const date = document.getElementById('transactionDate').value;
-      const categoryId = document.getElementById('transactionCategory').value;
+      const categorySelect = document.getElementById('transactionCategory');
+      const categoryId = categorySelect?.value;
+
+      if (!categoryId || categoryId.trim() === '') {
+        if (categorySelect) categorySelect.focus();
+        Toast.error('Por favor selecciona una categoría');
+        return;
+      }
+
       const accountId = document.getElementById('transactionAccount').value;
       const pocketId = document.getElementById('transactionPocket')?.value || null;
       const method = document.getElementById('transactionMethod').value;
@@ -1122,11 +1197,49 @@ class App {
       }
     });
 
+    // Formulario de reasignación masiva de movimientos entre categorías
+    document.getElementById('reassignCategoryForm')?.addEventListener('submit', async e => {
+      e.preventDefault();
+      if (!this.requireAuth()) return;
+      const sourceId = document.getElementById('reassignSourceCategoryId')?.value;
+      const targetSelect = document.getElementById('reassignTargetCategory');
+      const targetId = targetSelect?.value;
+
+      if (!targetId || targetId === sourceId) {
+        if (targetSelect) targetSelect.focus();
+        Toast.error('Por favor selecciona una categoría de destino.');
+        return;
+      }
+
+      const targetCat = categoryService.getById(targetId);
+      const result = await transactionService.reassignCategory(sourceId, targetId);
+
+      if (result.success) {
+        Toast.success(result.count === 1
+          ? `1 movimiento reasignado a "${targetCat?.name || 'la categoría'}".`
+          : `${result.count} movimientos reasignados a "${targetCat?.name || 'la categoría'}".`
+        );
+        Modal.closeAll();
+        this.refreshSelects();
+        this.renderAll();
+      } else {
+        Toast.error(result.error || 'Error al reasignar movimientos.');
+      }
+    });
+
     document.getElementById('budgetForm')?.addEventListener('submit', e => {
       e.preventDefault();
       if (!this.requireAuth()) return;
       const id = document.getElementById('editingBudgetId').value;
-      const categoryId = document.getElementById('budgetCategory').value;
+      const catSelect = document.getElementById('budgetCategory');
+      const categoryId = catSelect?.value;
+
+      if (!categoryId || categoryId.trim() === '') {
+        if (catSelect) catSelect.focus();
+        Toast.error('Por favor selecciona una categoría');
+        return;
+      }
+
       const limit = document.getElementById('budgetLimit').value;
       const note = document.getElementById('budgetNote').value;
 
@@ -1148,7 +1261,15 @@ class App {
       const amount = document.getElementById('recurringAmount').value;
       const frequency = document.getElementById('recurringFrequency').value;
       const dueDay = document.getElementById('recurringDueDay').value;
-      const categoryId = document.getElementById('recurringCategory').value;
+      const catSelect = document.getElementById('recurringCategory');
+      const categoryId = catSelect?.value;
+
+      if (!categoryId || categoryId.trim() === '') {
+        if (catSelect) catSelect.focus();
+        Toast.error('Por favor selecciona una categoría');
+        return;
+      }
+
       const accountId = document.getElementById('recurringAccount').value;
       const note = document.getElementById('recurringNote').value;
 
@@ -1481,6 +1602,15 @@ class App {
       }
 
       // Categorías
+      const reassignCat = e.target.closest('[data-reassign-category]');
+      if (reassignCat) {
+        this.requireAuth(() => {
+          const id = reassignCat.dataset.reassignCategory;
+          this.openReassignCategoryModal(id);
+        });
+        return;
+      }
+
       const editCat = e.target.closest('[data-edit-category]');
       if (editCat) {
         this.requireAuth(() => {

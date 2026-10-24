@@ -654,7 +654,9 @@
         <div class="form-row">
           <div class="field-group">
             <label class="field-label" for="transactionCategory">Categoría *</label>
-            <select class="field-input" id="transactionCategory" required></select>
+            <select class="field-input" id="transactionCategory" required>
+              <option value="" disabled selected hidden>Selecciona una categoría...</option>
+            </select>
           </div>
           <div class="field-group">
             <label class="field-label" for="transactionAccount">Cuenta / Billetera *</label>
@@ -1023,7 +1025,9 @@
         <input type="hidden" id="editingBudgetId"/>
 
         <label class="field-label" for="budgetCategory">Categoría de gasto *</label>
-        <select class="field-input" id="budgetCategory" required></select>
+        <select class="field-input" id="budgetCategory" required>
+          <option value="" disabled selected hidden>Selecciona una categoría...</option>
+        </select>
 
         <label class="field-label" for="budgetLimit">Límite mensual *</label>
         <div class="amount-input-wrap">
@@ -1083,7 +1087,9 @@
           </div>
           <div class="field-group">
             <label class="field-label" for="recurringCategory">Categoría</label>
-            <select class="field-input" id="recurringCategory" required></select>
+            <select class="field-input" id="recurringCategory" required>
+              <option value="" disabled selected hidden>Selecciona una categoría...</option>
+            </select>
           </div>
         </div>
 
@@ -1096,6 +1102,41 @@
         <div class="form-footer">
           <button type="button" class="outline-button" data-close-modal>Cancelar</button>
           <button type="submit" class="primary-button">Guardar suscripción</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Reasignación de Movimientos entre Categorías -->
+  <div class="modal-backdrop hidden" id="reassignCategoryModal" role="dialog" aria-modal="true" aria-labelledby="reassignCategoryModalTitle">
+    <div class="modal-card compact-modal">
+      <div class="modal-header">
+        <div>
+          <div class="eyebrow">ORGANIZACIÓN DE CATEGORÍAS</div>
+          <h2 id="reassignCategoryModalTitle">Reasignar movimientos</h2>
+          <p class="muted">Mueve todos los movimientos de una categoría a otra.</p>
+        </div>
+        <button class="icon-button close-modal" data-close-modal aria-label="Cerrar ventana de reasignar movimientos">
+          <span class="material-symbols-rounded">close</span>
+        </button>
+      </div>
+      <form id="reassignCategoryForm">
+        <input type="hidden" id="reassignSourceCategoryId"/>
+
+        <div style="background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 14px;">
+          <div style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Categoría origen</div>
+          <div id="reassignSourceCategoryName" style="font-size: 14px; font-weight: 700; color: var(--text); margin-top: 2px;">—</div>
+          <div id="reassignSourceCountText" style="font-size: 12px; color: var(--muted); margin-top: 4px;">0 movimientos activos asociados</div>
+        </div>
+
+        <label class="field-label" for="reassignTargetCategory">Categoría de destino *</label>
+        <select class="field-input" id="reassignTargetCategory" required>
+          <option value="" disabled selected hidden>Selecciona una categoría de destino...</option>
+        </select>
+
+        <div class="form-footer" style="margin-top: 20px;">
+          <button type="button" class="outline-button" data-close-modal>Cancelar</button>
+          <button type="submit" class="primary-button" id="reassignSubmitBtn">Mover movimientos</button>
         </div>
       </form>
     </div>

@@ -56,6 +56,7 @@ class CurrencyService {
 
     // Normalizar string: quitar espacios y signos de moneda
     let clean = String(value).trim().replace(/[$€£S\/\s]/g, '');
+    if (!clean) return 0;
     
     // Si contiene comas y puntos, determinar cuál es separador decimal
     const hasComma = clean.includes(',');
@@ -69,7 +70,21 @@ class CurrencyService {
         clean = clean.replace(/,/g, '');
       }
     } else if (hasComma) {
-      clean = clean.replace(',', '.');
+      const commaParts = clean.split(',');
+      if (commaParts.length > 2) {
+        clean = clean.replace(/,/g, '');
+      } else {
+        clean = clean.replace(',', '.');
+      }
+    } else if (hasDot) {
+      const dotParts = clean.split('.');
+      if (dotParts.length > 2) {
+        // Múltiples puntos (ej: 1.000.000) son separadores de miles
+        clean = clean.replace(/\./g, '');
+      } else if (dotParts.length === 2 && dotParts[1].length === 3 && dotParts[0].length >= 1 && dotParts[0].length <= 3) {
+        // Separador de miles latino sin decimales (ej: "225.000" o "1.250")
+        clean = clean.replace(/\./g, '');
+      }
     }
 
     const num = parseFloat(clean);

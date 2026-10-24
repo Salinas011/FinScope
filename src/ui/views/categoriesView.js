@@ -52,6 +52,9 @@ export class CategoriesView {
               ${iconHtml(c.icon, 'category')}
             </span>
             <div class="category-card-actions">
+              <button title="Reasignar movimientos" aria-label="Reasignar movimientos de ${this.escape(c.name)}" data-reassign-category="${c.id}">
+                <span class="material-symbols-rounded">swap_horiz</span>
+              </button>
               <button title="Editar categoría" aria-label="Editar categoría ${this.escape(c.name)}" data-edit-category="${c.id}">
                 <span class="material-symbols-rounded">edit</span>
               </button>

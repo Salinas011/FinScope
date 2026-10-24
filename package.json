@@ -10,7 +10,8 @@
     "test:verify": "node scripts/verify-v3.js",
     "test:cache-wipe": "node scripts/test-cache-wipe.js",
     "test:multi-browser": "node scripts/test-multi-browser-sync.js",
-    "test": "node scripts/verify-v3.js && node scripts/test-cache-wipe.js && node scripts/test-multi-browser-sync.js"
+    "test:features": "node scripts/test-new-features.js",
+    "test": "node scripts/verify-v3.js && node scripts/test-cache-wipe.js && node scripts/test-multi-browser-sync.js && node scripts/test-new-features.js"
   },
   "keywords": [
     "finanzas",

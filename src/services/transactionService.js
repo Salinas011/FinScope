@@ -26,6 +26,8 @@
  * @property {'synced'|'pending'} [syncStatus] Estado de sincronización en la nube.
  */
 import { store } from '../core/store.js';
+import { StorageService } from '../core/storage.js';
+import { eventBus } from '../core/eventBus.js';
 import { categoryService } from './categoryService.js';
 import { accountService } from './accountService.js';
 import { currencyService } from './currencyService.js';
@@ -214,6 +216,9 @@ class TransactionService {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) {
       return { success: false, error: 'La fecha no tiene un formato válido (AAAA-MM-DD).' };
     }
+    if (!categoryId || String(categoryId).trim() === '') {
+      return { success: false, error: 'Por favor selecciona una categoría.' };
+    }
 
     const finalAccountId = accountId || store.accounts[0]?.id || 'acc-bank';
     const cleanPocketId = pocketId && pocketId !== 'null' && pocketId !== 'none' ? pocketId : null;
@@ -321,6 +326,68 @@ class TransactionService {
     }
 
     return { success: true };
+  }
+
+  /**
+   * Reasigna todas las transacciones activas (!deletedAt) de una categoría origen a una categoría destino.
+   * Actualiza el store local, persiste en IndexedDB, sube a Firestore en lotes de máximo 500 operaciones
+   * y emite eventos en el EventBus para refrescar dashboard, balance y lista de movimientos.
+   * @param {string} sourceCategoryId ID de la categoría origen
+   * @param {string} targetCategoryId ID de la categoría destino
+   * @returns {Promise<{success: boolean, count: number, error?: string}>}
+   */
+  async reassignCategory(sourceCategoryId, targetCategoryId) {
+    if (!sourceCategoryId || !targetCategoryId) {
+      return { success: false, error: 'Las categorías de origen y destino son requeridas.' };
+    }
+    if (sourceCategoryId === targetCategoryId) {
+      return { success: false, error: 'La categoría de origen y destino no pueden ser la misma.' };
+    }
+
+    const allTx = store.transactions || [];
+    const txsToUpdate = allTx.filter(t => !t.deletedAt && t.categoryId === sourceCategoryId);
+
+    if (txsToUpdate.length === 0) {
+      return { success: true, count: 0 };
+    }
+
+    const now = Date.now();
+    const updatedPayloads = txsToUpdate.map(t => ({
+      ...t,
+      categoryId: targetCategoryId,
+      updatedAt: now,
+      syncStatus: 'pending'
+    }));
+
+    const payloadMap = new Map(updatedPayloads.map(t => [t.id, t]));
+    const nextTransactions = allTx.map(t => payloadMap.get(t.id) || t);
+
+    // 1. Actualizar Store local y emitir evento reactivo
+    store.setState({ transactions: nextTransactions }, 'transactions:reassigned');
+
+    // 2. Persistir localmente en StorageService (IndexedDB)
+    for (const item of updatedPayloads) {
+      try {
+        await StorageService.saveEntity('transactions', item);
+      } catch (err) {
+        console.warn('[TransactionService] Error guardando entidad en IndexedDB:', err);
+      }
+    }
+
+    // 3. Persistir en Cloud Firestore mediante lotes de máximo 500 operaciones
+    try {
+      if (firestoreService.currentUserId) {
+        await firestoreService.reassignTransactionsCategory(sourceCategoryId, targetCategoryId, updatedPayloads);
+      }
+    } catch (err) {
+      console.warn('[TransactionService] Error en persistencia Firestore durante reasignación:', err);
+    }
+
+    // 4. Emitir eventos en el eventBus para refrescar dashboard, balance y lista de movimientos
+    eventBus.emit('transactions:reassigned', { sourceCategoryId, targetCategoryId, count: updatedPayloads.length });
+    eventBus.emit('dashboard:refresh');
+
+    return { success: true, count: updatedPayloads.length };
   }
 }
 

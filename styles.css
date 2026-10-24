@@ -2521,6 +2521,12 @@ body.dark .account-balance.negative-balance {
   border: 1px solid var(--line);
 }
 
+.category-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .category-card-actions button {
   min-width: 44px;
   min-height: 44px;

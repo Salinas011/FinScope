@@ -793,6 +793,21 @@ class FirestoreService {
   }
 
   /**
+   * Reasigna transacciones activas de una categoría a otra en Cloud Firestore
+   * utilizando lotes divididos de máximo 500 operaciones por batch.
+   * @param {string} sourceCategoryId ID de categoría origen
+   * @param {string} targetCategoryId ID de categoría destino
+   * @param {Array<Object>} updatedTransactions Lista de transacciones con la nueva categoría asignada
+   * @returns {Promise<{success: boolean, committedCount: number, error?: string}>}
+   */
+  async reassignTransactionsCategory(sourceCategoryId, targetCategoryId, updatedTransactions) {
+    if (!updatedTransactions || updatedTransactions.length === 0) {
+      return { success: true, committedCount: 0 };
+    }
+    return await this.uploadBatch('transactions', updatedTransactions);
+  }
+
+  /**
    * Sincroniza cambios pendientes locales con debounce.
    */
   saveCurrentStateDebounced(user) {
