@@ -71,6 +71,39 @@ export class DashboardView {
       savingsProgressEl.style.width = `${Math.max(0, Math.min(100, stats.savingsRate))}%`;
     }
 
+    // 2.1 Proyección de gasto al cierre del mes
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonthNum = today.getMonth() + 1;
+    const currentMonthString = `${currentYear}-${String(currentMonthNum).padStart(2, '0')}`;
+    const diasTotalesMes = new Date(year, month, 0).getDate();
+
+    let diasTranscurridos = diasTotalesMes;
+    if (selectedMonth === currentMonthString) {
+      diasTranscurridos = Math.max(1, Math.min(today.getDate(), diasTotalesMes));
+    } else if (selectedMonth > currentMonthString) {
+      diasTranscurridos = 0;
+    }
+
+    const gastoTotalMes = Number(stats.expense) || 0;
+    let gastoProyectadoMes = 0;
+    if (diasTranscurridos > 0 && gastoTotalMes > 0) {
+      const gastoPromedioDiario = gastoTotalMes / diasTranscurridos;
+      gastoProyectadoMes = Math.round(gastoPromedioDiario * diasTotalesMes);
+    }
+
+    const monthProjEl = document.getElementById('monthProjection');
+    const monthProjValEl = document.getElementById('monthProjectionValue');
+    const monthProjTextEl = document.getElementById('monthProjectionText');
+    if (monthProjEl) {
+      monthProjEl.classList.remove('hidden');
+      if (monthProjTextEl) {
+        monthProjTextEl.innerHTML = `Proyección al cierre del mes: <strong id="monthProjectionValue">${currencyService.format(gastoProyectadoMes)}</strong>`;
+      } else if (monthProjValEl) {
+        monthProjValEl.textContent = currencyService.format(gastoProyectadoMes);
+      }
+    }
+
     // Gráficos
     ChartRenderer.renderCashflow('cashflowChart', 'chartEmpty', stats.transactions, year, month);
     ChartRenderer.renderDonut('categoryDonut', 'donutTotal', 'categoryLegend', stats.transactions);

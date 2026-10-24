@@ -57,7 +57,47 @@ export class TransactionsView {
       totalEl.textContent = `Gastos: ${currencyService.format(queryResult.totalExpense)} · Ingresos: ${currencyService.format(queryResult.totalIncome)}`;
     }
 
-    if (empty) empty.classList.toggle('hidden', queryResult.totalCount > 0);
+    const hasAnyTransactions = transactionService.getAll().length > 0;
+
+    if (empty) {
+      empty.classList.toggle('hidden', queryResult.totalCount > 0);
+      if (queryResult.totalCount === 0) {
+        const iconEl = document.getElementById('transactionsEmptyIcon');
+        const titleEl = document.getElementById('transactionsEmptyTitle');
+        const descEl = document.getElementById('transactionsEmptyDesc');
+        const actionEl = document.getElementById('transactionsEmptyAction');
+
+        if (!hasAnyTransactions) {
+          if (iconEl) iconEl.textContent = 'receipt_long';
+          if (titleEl) titleEl.textContent = 'Aún no tiene movimientos';
+          if (descEl) descEl.textContent = 'Registre su primer ingreso o gasto para comenzar a organizar sus finanzas.';
+          if (actionEl) {
+            actionEl.innerHTML = '<button class="primary-button" data-open-add><span class="material-symbols-rounded">add</span> Registrar movimiento</button>';
+          }
+        } else {
+          if (iconEl) iconEl.textContent = 'search_off';
+          if (titleEl) titleEl.textContent = 'No se encontraron movimientos con los filtros actuales';
+          if (descEl) descEl.textContent = 'Pruebe ajustando los filtros o realizando otra búsqueda.';
+          if (actionEl) {
+            actionEl.innerHTML = '<button class="outline-button" id="btnResetTxFilters"><span class="material-symbols-rounded">filter_alt_off</span> Restablecer filtros</button>';
+            document.getElementById('btnResetTxFilters')?.addEventListener('click', () => {
+              const searchInput = document.getElementById('transactionSearch');
+              const typeSelect = document.getElementById('typeFilter');
+              const catSelect = document.getElementById('categoryFilter');
+              const accSelect = document.getElementById('accountFilter');
+              const monthInput = document.getElementById('transactionMonth');
+              if (searchInput) searchInput.value = '';
+              if (typeSelect) typeSelect.value = 'all';
+              if (catSelect) catSelect.value = 'all';
+              if (accSelect) accSelect.value = 'all';
+              if (monthInput) monthInput.value = '';
+              this.resetPagination();
+              this.render();
+            });
+          }
+        }
+      }
+    }
     if (table) table.classList.toggle('hidden', queryResult.totalCount === 0);
 
     if (!tbody) return;
@@ -142,6 +182,9 @@ export class TransactionsView {
           </td>
           <td>
             <div class="row-actions">
+              <button class="row-action" title="Duplicar movimiento" aria-label="Duplicar movimiento" data-duplicate-transaction="${t.id}">
+                <span class="material-symbols-rounded">content_copy</span>
+              </button>
               <button class="row-action" title="Editar movimiento" aria-label="Editar movimiento ${this.escape(t.title)}" data-edit-transaction="${t.id}">
                 <span class="material-symbols-rounded">edit</span>
               </button>

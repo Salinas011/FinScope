@@ -24,8 +24,16 @@ self.addEventListener('install', event => {
       return Promise.allSettled(
         PRECACHE_ASSETS.map(url => cache.add(url))
       );
-    }).then(() => self.skipWaiting())
+    })
   );
+});
+
+// 1.1 Escuchar mensaje para activación controlada por el usuario (PWA Update)
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    console.log('[SW] Mensaje SKIP_WAITING recibido. Activando nueva versión...');
+    self.skipWaiting();
+  }
 });
 
 // 2. Ciclo de Vida: Activación y Limpieza de Caches Obsoletas

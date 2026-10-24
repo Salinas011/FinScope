@@ -10,6 +10,7 @@ import { accountService } from './accountService.js';
 import { currencyService } from './currencyService.js';
 import { StorageService } from '../core/storage.js';
 import { APP_VERSION } from '../core/constants.js';
+import { firestoreService } from './firestoreService.js';
 
 class DataTransferService {
   /**
@@ -77,6 +78,21 @@ class DataTransferService {
 
       if (mode === 'replace') {
         await store.replaceState(normalizedState);
+
+        // Escrituras por lotes en Firestore si hay sesión activa
+        if (firestoreService && firestoreService.currentUserId) {
+          try {
+            for (const coll of ['accounts', 'categories', 'transactions', 'budgets', 'recurring']) {
+              const list = normalizedState[coll];
+              if (Array.isArray(list) && list.length > 0) {
+                await firestoreService.uploadBatch(coll, list);
+              }
+            }
+          } catch (cloudErr) {
+            console.warn('[DataTransferService] Error subiendo respaldo restaurado a Firestore:', cloudErr);
+          }
+        }
+
         return { success: true, count: normalizedState.transactions?.length || 0 };
       } else {
         // Modo fusión: unir entidades evitando duplicados por ID
@@ -109,6 +125,20 @@ class DataTransferService {
         };
 
         store.setState(mergedState, 'data:merged');
+
+        // Escrituras por lotes en Firestore de los registros nuevos si hay sesión activa
+        if (firestoreService && firestoreService.currentUserId) {
+          try {
+            if (newAccs.length > 0) await firestoreService.uploadBatch('accounts', newAccs);
+            if (newCats.length > 0) await firestoreService.uploadBatch('categories', newCats);
+            if (newTxs.length > 0) await firestoreService.uploadBatch('transactions', newTxs);
+            if (newBudgets.length > 0) await firestoreService.uploadBatch('budgets', newBudgets);
+            if (newRecs.length > 0) await firestoreService.uploadBatch('recurring', newRecs);
+          } catch (cloudErr) {
+            console.warn('[DataTransferService] Error subiendo fusión a Firestore:', cloudErr);
+          }
+        }
+
         return { success: true, count: newTxs.length };
       }
     } catch (error) {
@@ -323,13 +353,23 @@ class DataTransferService {
    * @param {Array} transactions
    * @returns {{success: boolean, count: number}}
    */
-  commitCSVTransactions(transactions) {
+  async commitCSVTransactions(transactions) {
     if (!transactions || !transactions.length) return { success: false, count: 0 };
 
     store.setState(
       state => ({ transactions: [...transactions, ...state.transactions] }),
       'csv:imported'
     );
+
+    // Escritura por lotes en Firestore mediante writeBatch (lotes <= 500)
+    if (firestoreService && firestoreService.currentUserId) {
+      try {
+        await firestoreService.uploadBatch('transactions', transactions);
+      } catch (cloudErr) {
+        console.warn('[DataTransferService] Error en escritura por lote de transacciones CSV:', cloudErr);
+      }
+    }
+
     return { success: true, count: transactions.length };
   }
 }

@@ -1,14 +1,39 @@
 /**
- * src/services/currencyService.js
- * Servicio de moneda, formato numérico internacional y utilidades Safe Math en centavos.
+ * @typedef {number} AmountInCents
+ * Importe monetario canónico expresado como un número entero de centavos (base 100)
+ * en el modelo de dominio y capa de persistencia de FinScope v3.1.
+ * Erradica imprecisiones de coma flotante IEEE 754.
+ * Ejemplos: $ 19.99 -> 1999 centavos; $ 50.000 -> 5000000 centavos.
  */
+
+/**
+ * @typedef {number} MajorAmount
+ * Importe monetario expresado en unidades mayores (valor decimal estándar).
+ * Ejemplo: 15.5 ($ 15.50).
+ */
+
+/**
+ * @typedef {string} FormattedCurrency
+ * Representación en cadena para la interfaz de usuario con símbolo y formato numérico regional.
+ * Ejemplo: "$ 50.000,00".
+ */
+
+/**
+ * @typedef {Object} CurrencyConfig
+ * @property {string} code Código ISO de la divisa (COP, USD, EUR, etc.)
+ * @property {string} symbol Símbolo monetario ($, €, etc.)
+ * @property {string} name Nombre descriptivo de la divisa
+ * @property {string} locale Locale BCP 47 para formato (es-CO, en-US, etc.)
+ * @property {number} decimals Cantidad de decimales de presentación
+ */
+
 import { SUPPORTED_CURRENCIES } from '../core/constants.js';
 import { store } from '../core/store.js';
 
 class CurrencyService {
   /**
    * Obtiene la configuración de la moneda activa actual.
-   * @returns {Object}
+   * @returns {CurrencyConfig}
    */
   getCurrencyConfig() {
     const code = store.currency || 'COP';
@@ -16,11 +41,11 @@ class CurrencyService {
   }
 
   /**
-   * Convierte un valor flotante o string ingresado por el usuario a un entero en centavos (base 100).
-   * Erradica problemas de precisión IEEE 754.
+   * Convierte un valor decimal, flotante o string ingresado por el usuario a un entero en centavos (base 100).
+   * Erradica problemas de precisión IEEE 754 y soporta separadores coma y punto.
    * Ejemplos: 15.5 -> 1550, "10,25" -> 1025, 50000 -> 5000000.
-   * @param {number|string} value
-   * @returns {number} Entero en centavos.
+   * @param {number|string|MajorAmount} value
+   * @returns {AmountInCents} Entero exacto en centavos.
    */
   toCents(value) {
     if (value === null || value === undefined || value === '') return 0;
@@ -55,8 +80,8 @@ class CurrencyService {
   /**
    * Convierte un entero en centavos a su valor decimal correspondiente en unidades mayores.
    * Ej: 1550 -> 15.5
-   * @param {number} cents
-   * @returns {number}
+   * @param {AmountInCents} cents Valor entero en centavos.
+   * @returns {MajorAmount} Valor en unidades mayores (decimal).
    */
   fromCents(cents) {
     const num = Number(cents);
@@ -66,10 +91,10 @@ class CurrencyService {
 
   /**
    * Formatea un valor en centavos hacia la capa de presentación (UI) usando Intl.NumberFormat.
-   * @param {number} cents Valor expresado en centavos.
+   * @param {AmountInCents} cents Valor canónico expresado en centavos.
    * @param {boolean} [includeCode=false] Si debe incluir el código ISO (ej: COP, USD).
    * @param {boolean} [forceShow=false] Si debe forzar la visualización ignorando el Modo Privacidad.
-   * @returns {string}
+   * @returns {FormattedCurrency} Cadena lista para presentación visual.
    */
   format(cents, includeCode = false, forceShow = false) {
     const config = this.getCurrencyConfig();
@@ -103,9 +128,9 @@ class CurrencyService {
 
   /**
    * Formatea valores grandes expresados en centavos de forma abreviada (ej. $ 1.2 M, $ 450 k).
-   * @param {number} cents
+   * @param {AmountInCents} cents Valor canónico expresado en centavos.
    * @param {boolean} [forceShow=false]
-   * @returns {string}
+   * @returns {FormattedCurrency}
    */
   formatShort(cents, forceShow = false) {
     const config = this.getCurrencyConfig();

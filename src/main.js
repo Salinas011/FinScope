@@ -19,33 +19,17 @@ import { Modal } from './ui/modal.js';
 import { getMaterialIconName } from './ui/icons.js';
 import { DashboardView } from './ui/views/dashboardView.js';
 
-// Carga perezosa (Lazy Loading / dynamic import) para servicio de transferencia pesada
+import { router } from './ui/router.js';
+
+// Conexión con el enrutador modular
+const loadView = (name) => router.loadView(name);
+const loadedViews = router.loadedViews;
+
+// Carga perezosa para el servicio de transferencia
 const getDataTransferService = async () => {
   const mod = await import('./services/dataTransferService.js');
   return mod.dataTransferService;
 };
-
-// Carga perezosa (Lazy Loading / dynamic import) para vistas secundarias
-const viewLoaders = {
-  transactions: () => import('./ui/views/transactionsView.js').then(m => m.TransactionsView),
-  accounts: () => import('./ui/views/accountsView.js').then(m => m.AccountsView),
-  budgets: () => import('./ui/views/budgetsView.js').then(m => m.BudgetsView),
-  categories: () => import('./ui/views/categoriesView.js').then(m => m.CategoriesView),
-  recurring: () => import('./ui/views/recurringView.js').then(m => m.RecurringView),
-  settings: () => import('./ui/views/settingsView.js').then(m => m.SettingsView),
-};
-
-const loadedViews = {};
-
-async function loadView(name) {
-  if (loadedViews[name]) return loadedViews[name];
-  if (viewLoaders[name]) {
-    const viewClass = await viewLoaders[name]();
-    loadedViews[name] = viewClass;
-    return viewClass;
-  }
-  return null;
-}
 
 
 class App {
@@ -105,6 +89,7 @@ class App {
 
     // Vincular eventos y vistas
     this.bindEvents();
+    await router.init({ getSelectedMonth: () => this.selectedMonth });
     this.refreshSelects();
     this.renderAll();
 
@@ -475,74 +460,20 @@ class App {
     this.openUserProfileModal();
   }
 
+  get activeView() {
+    return router.getActiveView();
+  }
+
+  set activeView(viewName) {
+    router.activeView = viewName;
+  }
+
   async setView(viewName) {
-    if (!VIEW_TITLES[viewName]) return;
-    this.activeView = viewName;
-
-    // Actualizar secciones activas
-    document.querySelectorAll('.view').forEach(el => {
-      el.classList.toggle('active-view', el.id === `view-${viewName}`);
-    });
-
-    // Actualizar navegación
-    document.querySelectorAll('.nav-item[data-view]').forEach(el => {
-      el.classList.toggle('active', el.dataset.view === viewName);
-    });
-
-    // Actualizar barra de navegación inferior móvil
-    document.querySelectorAll('.bottom-nav-item[data-view]').forEach(el => {
-      el.classList.toggle('active', el.dataset.view === viewName);
-    });
-
-    // Breadcrumb
-    const breadcrumb = document.getElementById('breadcrumbCurrent');
-    if (breadcrumb) {
-      breadcrumb.textContent = VIEW_TITLES[viewName];
-    }
-
-    // Cerrar sidebar en pantallas táctiles/móviles
-    document.getElementById('sidebar')?.classList.remove('open');
-
-    await this.renderActiveView();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    await router.navigate(viewName);
   }
 
   async renderActiveView() {
-    switch (this.activeView) {
-      case 'dashboard':
-        DashboardView.render(this.selectedMonth);
-        break;
-      case 'transactions': {
-        const view = await loadView('transactions');
-        view?.render();
-        break;
-      }
-      case 'accounts': {
-        const view = await loadView('accounts');
-        view?.render();
-        break;
-      }
-      case 'budgets': {
-        const view = await loadView('budgets');
-        view?.render(this.selectedMonth);
-        break;
-      }
-      case 'categories': {
-        const view = await loadView('categories');
-        view?.render();
-        break;
-      }
-      case 'recurring': {
-        const view = await loadView('recurring');
-        view?.render(this.selectedMonth);
-        break;
-      }
-      case 'settings': {
-        const view = await loadView('settings');
-        view?.render();
-        break;
-      }
-    }
+    await router.renderActiveView();
   }
 
   renderAll() {
@@ -681,14 +612,14 @@ class App {
 
   // --- Modales y Formularios ---
 
-  openTransactionModal(type = 'expense', transaction = null) {
-    this.editingTransactionId = transaction?.id || null;
+  openTransactionModal(type = 'expense', transaction = null, isDuplicate = false) {
+    this.editingTransactionId = isDuplicate ? null : (transaction?.id || null);
     const form = document.getElementById('transactionForm');
     if (form) form.reset();
 
     const titleEl = document.getElementById('transactionModalTitle');
     if (titleEl) {
-      titleEl.textContent = transaction ? 'Editar movimiento' : 'Nuevo movimiento';
+      titleEl.textContent = (transaction && !isDuplicate) ? 'Editar movimiento' : 'Nuevo movimiento';
     }
 
     const typeInput = document.getElementById('transactionType');
@@ -706,7 +637,8 @@ class App {
 
     if (titleInput) titleInput.value = transaction?.title || '';
     if (amountInput) amountInput.value = transaction ? currencyService.fromCents(transaction.amount) : '';
-    if (dateInput) dateInput.value = transaction?.date || new Date().toISOString().slice(0, 10);
+    const localToday = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    if (dateInput) dateInput.value = (transaction && !isDuplicate) ? (transaction.date || localToday) : localToday;
     if (noteInput) noteInput.value = transaction?.note || '';
     if (methodInput) methodInput.value = transaction?.method || '';
 
@@ -715,8 +647,8 @@ class App {
     const catSelect = document.getElementById('transactionCategory');
     const accSelect = document.getElementById('transactionAccount');
     if (transaction) {
-      if (catSelect) catSelect.value = transaction.categoryId;
-      if (accSelect) accSelect.value = transaction.accountId;
+      if (catSelect && transaction.categoryId) catSelect.value = transaction.categoryId;
+      if (accSelect && transaction.accountId) accSelect.value = transaction.accountId;
       this.refreshPocketSelect();
       const pocketSelect = document.getElementById('transactionPocket');
       if (pocketSelect && transaction.pocketId) {
@@ -726,7 +658,7 @@ class App {
 
     const submitBtn = document.querySelector('#transactionForm button[type=submit]');
     if (submitBtn) {
-      submitBtn.innerHTML = transaction
+      submitBtn.innerHTML = (transaction && !isDuplicate)
         ? 'Guardar cambios <span class="material-symbols-rounded" style="font-size: 15px; vertical-align: middle;">arrow_forward</span>'
         : 'Guardar movimiento <span class="material-symbols-rounded" style="font-size: 15px; vertical-align: middle;">arrow_forward</span>';
     }
@@ -1423,6 +1355,15 @@ class App {
     // 12. Delegación de eventos en clics dinámicos protegida con Auth Guard (Editar, Borrar, Acciones)
     document.addEventListener('click', e => {
       // Movimientos
+      const dupTx = e.target.closest('[data-duplicate-transaction]');
+      if (dupTx) {
+        this.requireAuth(() => {
+          const tx = transactionService.getById(dupTx.dataset.duplicateTransaction);
+          if (tx) this.openTransactionModal(tx.type, tx, true);
+        });
+        return;
+      }
+
       const editTx = e.target.closest('[data-edit-transaction]');
       if (editTx) {
         this.requireAuth(() => {
@@ -1696,12 +1637,52 @@ function setupPWA() {
     }
   }
 
-  // 2. Registro del Service Worker
+  // 2. Registro del Service Worker y notificación de actualizaciones PWA
   if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
     window.addEventListener('load', () => {
+      let isRefreshing = false;
+
+      // Escuchar cuando el nuevo SW toma el control para recargar una sola vez
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!isRefreshing) {
+          isRefreshing = true;
+          window.location.reload();
+        }
+      });
+
+      const notifyUpdateAvailable = (waitingWorker) => {
+        Toast.persistentAction(
+          'Nueva versión disponible',
+          'Actualizar',
+          () => {
+            if (waitingWorker) {
+              waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+            }
+          }
+        );
+      };
+
       navigator.serviceWorker.register('./sw.js')
         .then(reg => {
           console.log('[PWA] Service Worker registrado exitosamente con alcance:', reg.scope);
+
+          // Si ya hay un worker en espera (waiting)
+          if (reg.waiting) {
+            notifyUpdateAvailable(reg.waiting);
+            return;
+          }
+
+          // Si se detecta un nuevo worker actualizándose
+          reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing;
+            if (!newWorker) return;
+
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                notifyUpdateAvailable(newWorker);
+              }
+            });
+          });
         })
         .catch(err => {
           console.warn('[PWA] No se pudo registrar el Service Worker:', err);

@@ -3,6 +3,40 @@
  * Servicio contable para cuentas, billeteras y sub-entidades "Alcancías" (Pockets).
  * Implementa Safe Math (cálculos exactos en centavos), invariantes de balance
  * y trazabilidad en el libro de transacciones sin alterar el P&L general.
+ *
+ * @typedef {number} AmountInCents
+ * Importe monetario canónico expresado como un número entero de centavos (base 100).
+ * Se almacena en la base de datos y memoria sin punto flotante.
+ *
+ * @typedef {Object} Pocket
+ * @property {string} id Identificador único de la alcancía.
+ * @property {string} name Nombre descriptivo de la meta o alcancía.
+ * @property {AmountInCents} targetAmount Meta de ahorro objetivo en centavos.
+ * @property {AmountInCents} [currentBalance] Saldo acumulado actual en centavos.
+ * @property {string} color Color hex asignado.
+ * @property {string} icon Nombre del icono Material Symbols.
+ * @property {number} createdAt Marca de tiempo Epoch ms.
+ * @property {number} updatedAt Marca de tiempo Epoch ms.
+ * @property {number|null} deletedAt Marca de tiempo Epoch ms si está eliminada.
+ *
+ * @typedef {Object} Account
+ * @property {string} id Identificador único de la cuenta.
+ * @property {string} name Nombre comercial o asignado a la cuenta.
+ * @property {'bank'|'cash'|'credit'|'wallet'} type Tipo de cuenta.
+ * @property {AmountInCents} initialBalance Saldo de apertura en centavos.
+ * @property {Array<Pocket>} pockets Sub-cuentas de ahorro asociadas.
+ * @property {string} color Color hex asignado.
+ * @property {string} icon Icono representativo.
+ * @property {number} createdAt Marca de tiempo Epoch ms.
+ * @property {number} updatedAt Marca de tiempo Epoch ms.
+ * @property {number|null} deletedAt Marca de tiempo Epoch ms.
+ *
+ * @typedef {Object} AccountBalances
+ * @property {string} accountId Identificador de la cuenta.
+ * @property {AmountInCents} initialBalance Saldo inicial en centavos.
+ * @property {AmountInCents} totalBalance Saldo patrimonial completo en centavos.
+ * @property {AmountInCents} availableBalance Saldo líquido disponible para gastos en centavos.
+ * @property {Array<Object>} pockets Alcancías asociadas con su saldo y progreso calculados.
  */
 import { store } from '../core/store.js';
 import { currencyService } from './currencyService.js';

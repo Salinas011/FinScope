@@ -2,6 +2,28 @@
  * src/services/transactionService.js
  * Servicio de transacciones financieras v3 con soporte para Safe Math (centavos),
  * gasto directo desde Alcancías (pockets), filtros avanzados, paginación y métricas.
+ *
+ * @typedef {number} AmountInCents
+ * Importe monetario canónico expresado como un número entero de centavos (base 100).
+ * Almacenado en la base de datos sin coma flotante.
+ * Ejemplos: $ 15.50 -> 1550; $ 50.000 -> 5000000.
+ *
+ * @typedef {Object} Transaction
+ * @property {string} id Identificador único UUID de la transacción.
+ * @property {string} title Concepto o descripción del movimiento.
+ * @property {AmountInCents} amount Importe en centavos.
+ * @property {'expense'|'income'|'transfer'|'pocket_deposit'|'pocket_withdraw'|'pocket_adjustment'} type Tipo de movimiento.
+ * @property {string} date Fecha en formato YYYY-MM-DD.
+ * @property {string} categoryId Identificador de la categoría asignada.
+ * @property {string} accountId Identificador de la cuenta origen o principal.
+ * @property {string|null} [toAccountId] Cuenta destino (para transferencias).
+ * @property {string|null} [pocketId] Identificador de la alcancía asociada.
+ * @property {string} [method] Método de pago o medio utilizado.
+ * @property {string} [note] Notas o detalles adicionales.
+ * @property {number} createdAt Marca temporal Unix ms.
+ * @property {number} updatedAt Marca temporal Unix ms.
+ * @property {number|null} deletedAt Marca temporal de borrado lógico (soft-delete).
+ * @property {'synced'|'pending'} [syncStatus] Estado de sincronización en la nube.
  */
 import { store } from '../core/store.js';
 import { categoryService } from './categoryService.js';

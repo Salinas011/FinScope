@@ -231,15 +231,27 @@ class FirestoreService {
             console.warn('[Firestore] No se pudieron leer metadatos de usuario:', metaErr);
           }
 
-          // 2. Fetch granular sobre cada subcolección
+          // 2. Fetch granular sobre cada subcolección con fallback a datos del documento raíz
           for (const collName of SYNCED_COLLECTIONS) {
-            const collRef = collection(db, 'users', this.currentUserId, collName);
-            const snapshot = await getDocs(collRef);
-            const docs = [];
-            snapshot.forEach(docSnap => {
-              docs.push({ id: docSnap.id, ...docSnap.data() });
-            });
-            remoteCollections[collName] = docs;
+            try {
+              const collRef = collection(db, 'users', this.currentUserId, collName);
+              const snapshot = await getDocs(collRef);
+              const docs = [];
+              snapshot.forEach(docSnap => {
+                docs.push({ id: docSnap.id, ...docSnap.data() });
+              });
+              if (docs.length > 0) {
+                remoteCollections[collName] = docs;
+              } else if (Array.isArray(remoteMeta[collName])) {
+                remoteCollections[collName] = remoteMeta[collName];
+              } else {
+                remoteCollections[collName] = [];
+              }
+            } catch (subErr) {
+              // Si la subcolección da permission-denied o no existe, rescatamos del documento raíz
+              console.warn(`[Firestore] Subcolección ${collName} no disponible (${subErr.code || subErr.message}). Utilizando documento raíz.`);
+              remoteCollections[collName] = Array.isArray(remoteMeta[collName]) ? remoteMeta[collName] : [];
+            }
           }
         } catch (err) {
           console.error('[Firestore] Error en pullAllUserData durante fetch remoto:', err);
@@ -422,20 +434,41 @@ class FirestoreService {
 
     try {
       this.setSyncStatus('syncing');
-      const itemRef = doc(db, 'users', uid, collName, item.id);
-      const { syncStatus, ...cleanItem } = item;
-      await setDoc(itemRef, cleanItem, { merge: true });
+
+      // 1. Intentar subcolección si está habilitada
+      try {
+        const itemRef = doc(db, 'users', uid, collName, item.id);
+        const { syncStatus, ...cleanItem } = item;
+        await setDoc(itemRef, cleanItem, { merge: true });
+      } catch (subErr) {
+        // Si la subcolección no tiene permisos, continuamos con el documento raíz
+      }
 
       const syncedItem = { ...item, syncStatus: 'synced' };
+
+      // 2. Actualizar en documento raíz
+      const userDocRef = doc(db, 'users', uid);
+      const currentList = store[collName] || [];
+      const updatedList = currentList.map(it => (it.id === item.id ? syncedItem : it));
+      if (!currentList.some(it => it.id === item.id)) {
+        updatedList.push(syncedItem);
+      }
+
+      await setDoc(userDocRef, {
+        [collName]: updatedList.map(it => {
+          const { syncStatus: _, ...clean } = it;
+          return clean;
+        }),
+        updatedAt: serverTimestamp()
+      }, { merge: true });
 
       // Persistir en IndexedDB
       await StorageService.saveEntity(collName, syncedItem);
 
       // Actualizar silenciosamente en el store en memoria
-      const currentList = store[collName] || [];
-      const updatedList = currentList.map(it => (it.id === item.id ? syncedItem : it));
+      const inMemList = (store[collName] || []).map(it => (it.id === item.id ? syncedItem : it));
       this.isApplyingRemoteChange = true;
-      store.setState({ [collName]: updatedList }, `firestore:synced:${collName}`);
+      store.setState({ [collName]: inMemList }, `firestore:synced:${collName}`);
       this.isApplyingRemoteChange = false;
 
       this.setSyncStatus('connected');
@@ -523,28 +556,129 @@ class FirestoreService {
     this.unsubscribers.forEach(unsub => unsub());
     this.unsubscribers = [];
 
-    for (const collName of SYNCED_COLLECTIONS) {
-      const collRef = collection(db, 'users', this.currentUserId, collName);
+    if (!db || !this.currentUserId) return;
 
-      const unsub = onSnapshot(collRef, snapshot => {
+    // 1. Listener de tiempo real sobre el documento raíz del usuario (Multi-dispositivo)
+    try {
+      const userDocRef = doc(db, 'users', this.currentUserId);
+      const unsubRoot = onSnapshot(userDocRef, snapshot => {
+        if (!snapshot.exists()) return;
         if (this.isApplyingRemoteChange) return;
 
-        snapshot.docChanges().forEach(change => {
-          const docData = change.doc.data();
-          const docId = change.doc.id;
-
-          if (change.type === 'added' || change.type === 'modified') {
-            this.handleRemoteRecordChange(collName, docId, docData);
-          } else if (change.type === 'removed') {
-            this.handleRemoteRecordRemoval(collName, docId);
-          }
-        });
+        const source = snapshot.metadata.hasPendingWrites ? 'local' : 'server';
+        if (source === 'server') {
+          const remoteData = snapshot.data();
+          this.handleRemoteRootDocChange(remoteData);
+        }
       }, error => {
-        console.warn(`[Firestore] Error escuchando colección ${collName}:`, error);
-        this.setSyncStatus('error');
+        console.warn('[Firestore] Notificación de listener raíz:', error);
       });
+      this.unsubscribers.push(unsubRoot);
+    } catch (e) {
+      console.warn('[Firestore] No se pudo instalar listener en documento raíz:', e);
+    }
 
-      this.unsubscribers.push(unsub);
+    // 2. Listeners granulares en subcolecciones si están disponibles
+    for (const collName of SYNCED_COLLECTIONS) {
+      try {
+        const collRef = collection(db, 'users', this.currentUserId, collName);
+
+        const unsub = onSnapshot(collRef, snapshot => {
+          if (this.isApplyingRemoteChange) return;
+
+          snapshot.docChanges().forEach(change => {
+            const docData = change.doc.data();
+            const docId = change.doc.id;
+
+            if (change.type === 'added' || change.type === 'modified') {
+              this.handleRemoteRecordChange(collName, docId, docData);
+            } else if (change.type === 'removed') {
+              this.handleRemoteRecordRemoval(collName, docId);
+            }
+          });
+        }, error => {
+          // Si las subcolecciones no tienen permisos, el listener raíz mantiene la sincronización activa
+          console.warn(`[Firestore] Aviso en listener de subcolección ${collName} (${error.code || error.message}). La sincronización continúa vía documento raíz.`);
+        });
+
+        this.unsubscribers.push(unsub);
+      } catch (err) {
+        console.warn(`[Firestore] No se pudo conectar listener de subcolección ${collName}:`, err);
+      }
+    }
+  }
+
+  /**
+   * Procesa cambios del documento raíz recibidos en tiempo real (Multi-dispositivo).
+   */
+  async handleRemoteRootDocChange(remoteData) {
+    if (!remoteData || this.isApplyingRemoteChange) return;
+
+    const currentState = store.getState();
+    let hasChanges = false;
+    const nextState = { ...currentState };
+
+    for (const collName of SYNCED_COLLECTIONS) {
+      if (Array.isArray(remoteData[collName])) {
+        const remoteItems = remoteData[collName];
+        const localItems = currentState[collName] || [];
+
+        const localMap = new Map(localItems.map(item => [item.id, item]));
+        const remoteMap = new Map(remoteItems.map(item => [item.id, item]));
+        const mergedList = [];
+
+        for (const [id, remoteItem] of remoteMap.entries()) {
+          const localItem = localMap.get(id);
+          if (!localItem) {
+            if (!remoteItem.deletedAt) {
+              mergedList.push({ ...remoteItem, syncStatus: 'synced' });
+              hasChanges = true;
+            }
+          } else {
+            const remoteTime = Number(remoteItem.updatedAt) || 0;
+            const localTime = Number(localItem.updatedAt) || 0;
+            if (remoteTime >= localTime) {
+              if (!remoteItem.deletedAt) {
+                mergedList.push({ ...remoteItem, syncStatus: 'synced' });
+              }
+              if (remoteTime > localTime) hasChanges = true;
+            } else {
+              if (!localItem.deletedAt) {
+                mergedList.push(localItem);
+              }
+            }
+          }
+        }
+
+        for (const [id, localItem] of localMap.entries()) {
+          if (!remoteMap.has(id)) {
+            if (!localItem.deletedAt) {
+              mergedList.push(localItem);
+            }
+          }
+        }
+
+        nextState[collName] = mergedList;
+      }
+    }
+
+    if (remoteData.currency && remoteData.currency !== currentState.currency) {
+      nextState.currency = remoteData.currency;
+      hasChanges = true;
+    }
+    if (remoteData.theme && remoteData.theme !== currentState.theme) {
+      nextState.theme = remoteData.theme;
+      hasChanges = true;
+    }
+    if (remoteData.settings) {
+      nextState.settings = { ...currentState.settings, ...remoteData.settings };
+    }
+
+    if (hasChanges) {
+      this.isApplyingRemoteChange = true;
+      await store.replaceState(nextState);
+      this.isApplyingRemoteChange = false;
+      this.setSyncStatus('connected');
     }
   }
 
@@ -593,27 +727,68 @@ class FirestoreService {
   }
 
   /**
-   * Sube un lote de registros a una subcolección de Firestore.
+   * Sube un conjunto de registros a Firestore agrupando en lotes atómicos de máximo 500 escrituras por batch.
+   * @param {string} collName Nombre de la colección ('transactions', 'accounts', etc.)
+   * @param {Array<Object>} items Lista de registros a persistir.
+   * @returns {Promise<{success: boolean, committedCount: number, error?: string}>}
    */
   async uploadBatch(collName, items) {
-    if (!db || !this.currentUserId || items.length === 0) return;
+    if (!db || !this.currentUserId || !items || items.length === 0) {
+      return { success: true, committedCount: 0 };
+    }
+
+    const BATCH_SIZE = 500;
+    let committedCount = 0;
+    const errors = [];
 
     try {
-      const batch = writeBatch(db);
-      for (const item of items) {
-        const itemRef = doc(db, 'users', this.currentUserId, collName, item.id);
-        const { syncStatus, ...cleanItem } = item;
-        batch.set(itemRef, cleanItem, { merge: true });
-      }
-      await batch.commit();
+      this.setSyncStatus('syncing');
 
-      // Marcar como sincronizados localmente
+      // 1. Escrituras en subcolección agrupadas en lotes de máximo 500 operaciones
+      for (let i = 0; i < items.length; i += BATCH_SIZE) {
+        const chunk = items.slice(i, i + BATCH_SIZE);
+        try {
+          const batch = writeBatch(db);
+          for (const item of chunk) {
+            const itemRef = doc(db, 'users', this.currentUserId, collName, item.id);
+            const { syncStatus, ...cleanItem } = item;
+            batch.set(itemRef, cleanItem, { merge: true });
+          }
+          await batch.commit();
+          committedCount += chunk.length;
+        } catch (subErr) {
+          console.warn(`[Firestore] Error en batch de subcolección ${collName} (lote ${Math.floor(i / BATCH_SIZE) + 1}):`, subErr);
+          errors.push(subErr);
+        }
+      }
+
+      // 2. Respaldo consolidado en el documento raíz del usuario
+      const userDocRef = doc(db, 'users', this.currentUserId);
+      const allItems = store[collName] || [];
+      await setDoc(userDocRef, {
+        [collName]: allItems.map(it => {
+          const { syncStatus: _, ...clean } = it;
+          return clean;
+        }),
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      // Marcar como sincronizados localmente en IndexedDB
       const syncedItems = items.map(it => ({ ...it, syncStatus: 'synced' }));
       for (const s of syncedItems) {
         await StorageService.saveEntity(collName, s);
       }
+
+      this.setSyncStatus('connected');
+      return {
+        success: errors.length === 0,
+        committedCount,
+        errors: errors.length > 0 ? errors : undefined
+      };
     } catch (err) {
       console.error(`[Firestore] Error subiendo lote de ${collName}:`, err);
+      this.setSyncStatus('error');
+      return { success: false, committedCount, error: err.message };
     }
   }
 
@@ -650,14 +825,45 @@ class FirestoreService {
       }
     }
 
-    // Actualizar metadatos raíz
+    // Persistir siempre el estado consolidado completo en el documento raíz de Firestore
     const userDocRef = doc(db, 'users', this.currentUserId);
+    const state = store.getState();
     await setDoc(userDocRef, {
+      accounts: (state.accounts || []).map(a => {
+        const { syncStatus: _, ...clean } = a;
+        return clean;
+      }),
+      categories: (state.categories || []).map(c => {
+        const { syncStatus: _, ...clean } = c;
+        return clean;
+      }),
+      transactions: (state.transactions || []).map(t => {
+        const { syncStatus: _, ...clean } = t;
+        return clean;
+      }),
+      budgets: (state.budgets || []).map(b => {
+        const { syncStatus: _, ...clean } = b;
+        return clean;
+      }),
+      recurring: (state.recurring || []).map(r => {
+        const { syncStatus: _, ...clean } = r;
+        return clean;
+      }),
       currency: store.currency,
       theme: store.theme,
       settings: store.settings,
       updatedAt: serverTimestamp()
     }, { merge: true });
+
+    // Marcar localmente como sincronizados
+    for (const collName of SYNCED_COLLECTIONS) {
+      const items = store[collName] || [];
+      for (const item of items) {
+        if (item.syncStatus === 'pending') {
+          await StorageService.saveEntity(collName, { ...item, syncStatus: 'synced' });
+        }
+      }
+    }
   }
 
   /**

@@ -150,6 +150,10 @@
               <span class="tiny-dot mint-dot"></span>
               <span id="balanceFoot">Ingresos menos gastos</span>
             </div>
+            <div class="stat-projection" id="monthProjection">
+              <span class="material-symbols-rounded">trending_up</span>
+              <span id="monthProjectionText">Proyección al cierre del mes: <strong id="monthProjectionValue">$ 0</strong></span>
+            </div>
             <div class="balance-decoration"></div>
           </article>
 
@@ -343,10 +347,12 @@
             </table>
 
             <div class="empty-state hidden" id="transactionsEmpty">
-              <div class="empty-illustration material-symbols-rounded">search_off</div>
-              <strong>No se encontraron movimientos</strong>
-              <p>Prueba ajustando los filtros o registra un nuevo movimiento.</p>
-              <button class="primary-button" data-open-add><span class="material-symbols-rounded">add</span> Agregar movimiento</button>
+              <div class="empty-illustration material-symbols-rounded" id="transactionsEmptyIcon">receipt_long</div>
+              <strong id="transactionsEmptyTitle">Aún no tiene movimientos</strong>
+              <p id="transactionsEmptyDesc">Registre su primer ingreso o gasto para comenzar a organizar sus finanzas.</p>
+              <div id="transactionsEmptyAction">
+                <button class="primary-button" data-open-add><span class="material-symbols-rounded">add</span> Registrar movimiento</button>
+              </div>
             </div>
           </div>
 
@@ -423,8 +429,8 @@
         <div class="budgets-grid" id="budgetsGrid"></div>
         <div class="empty-state panel hidden" id="budgetsEmpty">
           <div class="empty-illustration material-symbols-rounded">pie_chart</div>
-          <strong>Aún no hay presupuestos</strong>
-          <p>Asigna un límite mensual a las categorías que deseas controlar.</p>
+          <strong>Todavía no tiene presupuestos</strong>
+          <p>Cree un presupuesto para fijar límites mensuales y mantener sus gastos bajo control.</p>
           <button class="primary-button" id="emptyAddBudget"><span class="material-symbols-rounded">add</span> Crear presupuesto</button>
         </div>
       </section>
@@ -474,10 +480,10 @@
         </div>
         <div class="recurring-grid" id="recurringGrid"></div>
         <div class="empty-state panel hidden" id="recurringEmpty">
-          <div class="empty-illustration material-symbols-rounded">schedule</div>
-          <strong>Sin pagos recurrentes programados</strong>
-          <p>Agrega suscripciones como Netflix, Internet o el arriendo para automatizar su registro mensual.</p>
-          <button class="primary-button" id="emptyAddRecurring"><span class="material-symbols-rounded">add</span> Agregar recurrente</button>
+          <div class="empty-illustration material-symbols-rounded">event_repeat</div>
+          <strong>No tiene movimientos recurrentes</strong>
+          <p>Agregue suscripciones y pagos periódicos para tenerlos siempre al día.</p>
+          <button class="primary-button" id="emptyAddRecurring"><span class="material-symbols-rounded">add</span> Agregar movimiento recurrente</button>
         </div>
       </section>
 
@@ -636,7 +642,7 @@
             <label class="field-label" for="transactionAmount">Valor *</label>
             <div class="amount-input-wrap">
               <span>$</span>
-              <input class="field-input amount-input" id="transactionAmount" type="number" min="1" step="any" placeholder="0" required />
+              <input class="field-input amount-input" id="transactionAmount" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0" required />
             </div>
           </div>
           <div class="field-group">
@@ -722,7 +728,7 @@
           </div>
           <div class="field-group">
             <label class="field-label" for="accountInitialBalance">Saldo Inicial</label>
-            <input class="field-input" id="accountInitialBalance" type="number" step="any" placeholder="0" />
+            <input class="field-input amount-input" id="accountInitialBalance" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0" />
           </div>
         </div>
 
@@ -786,7 +792,7 @@
             <label class="field-label" for="pocketTargetAmount">Meta de ahorro <span class="optional-label">OPCIONAL</span></label>
             <div class="amount-input-wrap">
               <span>$</span>
-              <input class="field-input amount-input" id="pocketTargetAmount" type="number" step="any" placeholder="0" />
+              <input class="field-input amount-input" id="pocketTargetAmount" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0" />
             </div>
           </div>
           <div class="field-group">
@@ -867,7 +873,7 @@
           <label class="field-label" for="pocketActionAmount">Monto a mover *</label>
           <div class="amount-input-wrap">
             <span>$</span>
-            <input class="field-input amount-input" id="pocketActionAmount" type="number" min="1" step="any" placeholder="0" required />
+            <input class="field-input amount-input" id="pocketActionAmount" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0" required />
           </div>
         </div>
 
@@ -910,7 +916,7 @@
         <div class="form-row">
           <div class="field-group">
             <label class="field-label" for="transferAmount">Monto a transferir *</label>
-            <input class="field-input" id="transferAmount" type="number" min="1" step="any" placeholder="0" required />
+            <input class="field-input amount-input" id="transferAmount" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0" required />
           </div>
           <div class="field-group">
             <label class="field-label" for="transferDate">Fecha *</label>
@@ -1022,7 +1028,7 @@
         <label class="field-label" for="budgetLimit">Límite mensual *</label>
         <div class="amount-input-wrap">
           <span>$</span>
-          <input class="field-input amount-input" id="budgetLimit" type="number" min="1" step="any" placeholder="0" required/>
+          <input class="field-input amount-input" id="budgetLimit" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0" required />
         </div>
 
         <label class="field-label" for="budgetNote">Nota <span class="optional-label">OPCIONAL</span></label>
@@ -1058,7 +1064,7 @@
         <div class="form-row">
           <div class="field-group">
             <label class="field-label" for="recurringAmount">Monto *</label>
-            <input class="field-input" id="recurringAmount" type="number" min="1" step="any" placeholder="0" required />
+            <input class="field-input amount-input" id="recurringAmount" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0" required />
           </div>
           <div class="field-group">
             <label class="field-label" for="recurringFrequency">Frecuencia</label>

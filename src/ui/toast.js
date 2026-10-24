@@ -66,4 +66,50 @@ export class Toast {
   static info(msg, duration = 3200) {
     this.show(msg, 'info', duration);
   }
+
+  /**
+   * Muestra una notificación persistente con un botón de acción accionable.
+   * @param {string} message Mensaje de la notificación.
+   * @param {string} actionText Texto del botón.
+   * @param {Function} onAction Acción a ejecutar al pulsar el botón.
+   * @returns {HTMLElement}
+   */
+  static persistentAction(message, actionText, onAction) {
+    this.init();
+
+    const node = document.createElement('div');
+    node.className = 'toast info toast-persistent';
+    node.setAttribute('role', 'status');
+    node.setAttribute('aria-live', 'polite');
+
+    const escaped = String(message).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+    const escapedBtn = String(actionText).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+
+    node.innerHTML = `
+      <span class="toast-mark"><span class="material-symbols-rounded">system_update</span></span>
+      <span class="toast-text">${escaped}</span>
+      <button type="button" class="toast-action-btn">${escapedBtn}</button>
+    `;
+
+    const btn = node.querySelector('.toast-action-btn');
+    if (btn) {
+      btn.addEventListener('click', () => {
+        try {
+          if (typeof onAction === 'function') onAction();
+        } finally {
+          node.style.opacity = '0';
+          node.style.transform = 'translateY(8px)';
+          setTimeout(() => node.remove(), 250);
+        }
+      });
+    }
+
+    this.container.appendChild(node);
+    return node;
+  }
 }
+
