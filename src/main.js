@@ -868,7 +868,7 @@ class App {
   }
 
   /**
-   * Abre el diálogo de reasignación masiva de movimientos entre categorías.
+   * Abre el diálogo de reasignación de saldo/movimientos entre categorías.
    * @param {string} sourceCategoryId
    */
   openReassignCategoryModal(sourceCategoryId) {
@@ -877,6 +877,7 @@ class App {
 
     const activeTxs = (store.transactions || []).filter(t => !t.deletedAt && t.categoryId === sourceCategoryId);
     const count = activeTxs.length;
+    const totalCents = activeTxs.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
     const form = document.getElementById('reassignCategoryForm');
     if (form) form.reset();
@@ -884,28 +885,99 @@ class App {
     const sourceIdInput = document.getElementById('reassignSourceCategoryId');
     const sourceNameEl = document.getElementById('reassignSourceCategoryName');
     const sourceCountEl = document.getElementById('reassignSourceCountText');
+    const sourceBalanceEl = document.getElementById('reassignSourceBalanceText');
     const targetSelect = document.getElementById('reassignTargetCategory');
+    const amountInput = document.getElementById('reassignAmount');
+    const validationMsg = document.getElementById('reassignValidationMsg');
     const submitBtn = document.getElementById('reassignSubmitBtn');
 
     if (sourceIdInput) sourceIdInput.value = sourceCategoryId;
     if (sourceNameEl) sourceNameEl.textContent = `${cat.name} · ${cat.type === 'income' ? 'Ingreso' : 'Gasto'}`;
     if (sourceCountEl) {
-      sourceCountEl.textContent = `${count} ${count === 1 ? 'movimiento activo asociado' : 'movimientos activos asociados'}`;
+      sourceCountEl.textContent = `${count} ${count === 1 ? 'movimiento activo' : 'movimientos activos'}`;
+    }
+    if (sourceBalanceEl) {
+      sourceBalanceEl.textContent = currencyService.format(totalCents);
     }
 
     if (targetSelect) {
-      // Categorías de destino del mismo tipo excluyendo la de origen
       const candidates = categoryService.getAll().filter(c => c.id !== sourceCategoryId && c.type === cat.type);
       targetSelect.innerHTML = '<option value="" disabled selected hidden>Selecciona una categoría de destino...</option>' +
         candidates.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
       targetSelect.value = '';
     }
 
-    if (submitBtn) {
-      submitBtn.innerHTML = `Mover ${count} ${count === 1 ? 'movimiento' : 'movimientos'} <span class="material-symbols-rounded" style="font-size: 15px; vertical-align: middle;">arrow_forward</span>`;
-      submitBtn.disabled = count === 0;
+    if (amountInput) {
+      amountInput.value = '';
     }
 
+    if (validationMsg) {
+      validationMsg.style.display = 'none';
+      validationMsg.textContent = '';
+    }
+
+    const updateSubmitState = () => {
+      const targetId = targetSelect?.value;
+      const targetCat = targetId ? categoryService.getById(targetId) : null;
+      const amountVal = amountInput?.value || '';
+      const cents = currencyService.toCents(amountVal);
+
+      if (validationMsg) {
+        validationMsg.style.display = 'none';
+        validationMsg.textContent = '';
+      }
+
+      if (totalCents <= 0) {
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Sin saldo disponible para mover';
+        }
+        if (validationMsg) {
+          validationMsg.textContent = 'Esta categoría no tiene movimientos activos con saldo para transferir.';
+          validationMsg.style.display = 'block';
+        }
+        return;
+      }
+
+      if (!targetId) {
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Selecciona una categoría de destino';
+        }
+        return;
+      }
+
+      if (cents <= 0) {
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Ingresa un valor a mover';
+        }
+        return;
+      }
+
+      if (cents > totalCents) {
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Monto supera el disponible';
+        }
+        if (validationMsg) {
+          validationMsg.textContent = `El valor no puede superar el total disponible de la categoría (${currencyService.format(totalCents)}).`;
+          validationMsg.style.display = 'block';
+        }
+        return;
+      }
+
+      // Válido
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = `Mover ${currencyService.format(cents)} a ${targetCat?.name || 'Destino'}`;
+      }
+    };
+
+    targetSelect?.addEventListener('change', updateSubmitState);
+    amountInput?.addEventListener('input', updateSubmitState);
+
+    updateSubmitState();
     Modal.open('#reassignCategoryModal');
   }
 
@@ -1197,13 +1269,16 @@ class App {
       }
     });
 
-    // Formulario de reasignación masiva de movimientos entre categorías
+    // Formulario de reasignación de saldo/movimientos entre categorías
     document.getElementById('reassignCategoryForm')?.addEventListener('submit', async e => {
       e.preventDefault();
       if (!this.requireAuth()) return;
       const sourceId = document.getElementById('reassignSourceCategoryId')?.value;
       const targetSelect = document.getElementById('reassignTargetCategory');
       const targetId = targetSelect?.value;
+      const amountInput = document.getElementById('reassignAmount');
+      const amountVal = amountInput?.value || '';
+      const cents = currencyService.toCents(amountVal);
 
       if (!targetId || targetId === sourceId) {
         if (targetSelect) targetSelect.focus();
@@ -1211,14 +1286,17 @@ class App {
         return;
       }
 
+      if (cents <= 0) {
+        if (amountInput) amountInput.focus();
+        Toast.error('Por favor ingresa un monto a mover mayor a cero.');
+        return;
+      }
+
       const targetCat = categoryService.getById(targetId);
-      const result = await transactionService.reassignCategory(sourceId, targetId);
+      const result = await transactionService.reassignCategory(sourceId, targetId, cents);
 
       if (result.success) {
-        Toast.success(result.count === 1
-          ? `1 movimiento reasignado a "${targetCat?.name || 'la categoría'}".`
-          : `${result.count} movimientos reasignados a "${targetCat?.name || 'la categoría'}".`
-        );
+        Toast.success(`Se trasladaron ${currencyService.format(result.amount)} a "${targetCat?.name || 'la categoría'}".`);
         Modal.closeAll();
         this.refreshSelects();
         this.renderAll();

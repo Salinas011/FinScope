@@ -730,7 +730,10 @@
           </div>
           <div class="field-group">
             <label class="field-label" for="accountInitialBalance">Saldo Inicial</label>
-            <input class="field-input amount-input" id="accountInitialBalance" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0" />
+            <div class="amount-input-wrap">
+              <span>$</span>
+              <input class="field-input amount-input" id="accountInitialBalance" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0" />
+            </div>
           </div>
         </div>
 
@@ -918,7 +921,10 @@
         <div class="form-row">
           <div class="field-group">
             <label class="field-label" for="transferAmount">Monto a transferir *</label>
-            <input class="field-input amount-input" id="transferAmount" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0" required />
+            <div class="amount-input-wrap">
+              <span>$</span>
+              <input class="field-input amount-input" id="transferAmount" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0" required />
+            </div>
           </div>
           <div class="field-group">
             <label class="field-label" for="transferDate">Fecha *</label>
@@ -1068,7 +1074,10 @@
         <div class="form-row">
           <div class="field-group">
             <label class="field-label" for="recurringAmount">Monto *</label>
-            <input class="field-input amount-input" id="recurringAmount" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0" required />
+            <div class="amount-input-wrap">
+              <span>$</span>
+              <input class="field-input amount-input" id="recurringAmount" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0" required />
+            </div>
           </div>
           <div class="field-group">
             <label class="field-label" for="recurringFrequency">Frecuencia</label>
@@ -1126,7 +1135,10 @@
         <div style="background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 14px;">
           <div style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Categoría origen</div>
           <div id="reassignSourceCategoryName" style="font-size: 14px; font-weight: 700; color: var(--text); margin-top: 2px;">—</div>
-          <div id="reassignSourceCountText" style="font-size: 12px; color: var(--muted); margin-top: 4px;">0 movimientos activos asociados</div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 12px;">
+            <span id="reassignSourceCountText" style="color: var(--muted);">0 movimientos activos</span>
+            <span style="color: var(--muted);">Total disponible: <strong id="reassignSourceBalanceText" style="color: var(--text);">$ 0</strong></span>
+          </div>
         </div>
 
         <label class="field-label" for="reassignTargetCategory">Categoría de destino *</label>
@@ -1134,9 +1146,16 @@
           <option value="" disabled selected hidden>Selecciona una categoría de destino...</option>
         </select>
 
+        <label class="field-label" for="reassignAmount">Valor a mover *</label>
+        <div class="amount-input-wrap">
+          <span>$</span>
+          <input class="field-input amount-input" id="reassignAmount" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0" required />
+        </div>
+        <div id="reassignValidationMsg" style="font-size: 11px; color: #ef4444; margin-top: -12px; margin-bottom: 14px; display: none;"></div>
+
         <div class="form-footer" style="margin-top: 20px;">
           <button type="button" class="outline-button" data-close-modal>Cancelar</button>
-          <button type="submit" class="primary-button" id="reassignSubmitBtn">Mover movimientos</button>
+          <button type="submit" class="primary-button" id="reassignSubmitBtn" disabled>Mover a categoría</button>
         </div>
       </form>
     </div>

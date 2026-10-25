@@ -329,14 +329,18 @@ class TransactionService {
   }
 
   /**
-   * Reasigna todas las transacciones activas (!deletedAt) de una categoría origen a una categoría destino.
+   * Reasigna movimientos o un monto específico ($X) entre categorías.
+   * Si se especifica amount, reasigna exactamente ese valor en centavos (dividiendo una transacción si es necesario).
+   * Si no se especifica amount (o es null), reasigna todas las transacciones activas de la categoría origen.
    * Actualiza el store local, persiste en IndexedDB, sube a Firestore en lotes de máximo 500 operaciones
    * y emite eventos en el EventBus para refrescar dashboard, balance y lista de movimientos.
+   * 
    * @param {string} sourceCategoryId ID de la categoría origen
    * @param {string} targetCategoryId ID de la categoría destino
-   * @returns {Promise<{success: boolean, count: number, error?: string}>}
+   * @param {number|string|null} [amount=null] Monto a mover (en centavos o valor monetario)
+   * @returns {Promise<{success: boolean, count: number, amount?: number, error?: string}>}
    */
-  async reassignCategory(sourceCategoryId, targetCategoryId) {
+  async reassignCategory(sourceCategoryId, targetCategoryId, amount = null) {
     if (!sourceCategoryId || !targetCategoryId) {
       return { success: false, error: 'Las categorías de origen y destino son requeridas.' };
     }
@@ -345,28 +349,102 @@ class TransactionService {
     }
 
     const allTx = store.transactions || [];
-    const txsToUpdate = allTx.filter(t => !t.deletedAt && t.categoryId === sourceCategoryId);
+    const sourceTxs = allTx.filter(t => !t.deletedAt && t.categoryId === sourceCategoryId);
 
-    if (txsToUpdate.length === 0) {
-      return { success: true, count: 0 };
+    if (sourceTxs.length === 0) {
+      return { success: false, error: 'La categoría de origen no tiene movimientos activos para transferir.' };
+    }
+
+    const totalAvailable = sourceTxs.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+    let amountInCents = null;
+    if (amount !== null && amount !== undefined && amount !== '') {
+      amountInCents = typeof amount === 'number' ? Math.round(amount) : currencyService.toCents(amount);
+    }
+
+    if (amountInCents !== null) {
+      if (amountInCents <= 0) {
+        return { success: false, error: 'El monto a transferir debe ser mayor a cero.' };
+      }
+      if (amountInCents > totalAvailable) {
+        return {
+          success: false,
+          error: `El monto a transferir (${currencyService.format(amountInCents)}) supera el total disponible de la categoría (${currencyService.format(totalAvailable)}).`
+        };
+      }
     }
 
     const now = Date.now();
-    const updatedPayloads = txsToUpdate.map(t => ({
-      ...t,
-      categoryId: targetCategoryId,
-      updatedAt: now,
-      syncStatus: 'pending'
-    }));
+    let updatedPayloads = [];
+    let newPayloads = [];
+
+    if (amountInCents === null || amountInCents === totalAvailable) {
+      // Reasignar todos los movimientos activos
+      updatedPayloads = sourceTxs.map(t => ({
+        ...t,
+        categoryId: targetCategoryId,
+        updatedAt: now,
+        syncStatus: 'pending'
+      }));
+    } else {
+      // Reasignar exactamente amountInCents
+      let remaining = amountInCents;
+      for (const t of sourceTxs) {
+        if (remaining <= 0) break;
+        const tAmount = Number(t.amount) || 0;
+
+        if (remaining >= tAmount) {
+          // Reasignar la transacción completa
+          updatedPayloads.push({
+            ...t,
+            categoryId: targetCategoryId,
+            updatedAt: now,
+            syncStatus: 'pending'
+          });
+          remaining -= tAmount;
+        } else {
+          // Dividir la transacción: una parte queda en origen y la otra va a destino
+          const splitAmount = remaining;
+          const remainingInSource = tAmount - splitAmount;
+
+          updatedPayloads.push({
+            ...t,
+            amount: remainingInSource,
+            updatedAt: now,
+            syncStatus: 'pending'
+          });
+
+          const splitTx = {
+            ...t,
+            id: `tx-${now}-${Math.random().toString(36).slice(2, 7)}`,
+            amount: splitAmount,
+            categoryId: targetCategoryId,
+            title: `${t.title} (Reclasificado)`,
+            note: t.note ? `${t.note} · Reclasificado desde otra categoría` : 'Reclasificado desde otra categoría',
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: null,
+            syncStatus: 'pending'
+          };
+          newPayloads.push(splitTx);
+          remaining = 0;
+          break;
+        }
+      }
+    }
 
     const payloadMap = new Map(updatedPayloads.map(t => [t.id, t]));
     const nextTransactions = allTx.map(t => payloadMap.get(t.id) || t);
+    if (newPayloads.length) {
+      nextTransactions.push(...newPayloads);
+    }
 
     // 1. Actualizar Store local y emitir evento reactivo
     store.setState({ transactions: nextTransactions }, 'transactions:reassigned');
 
+    const allChanged = [...updatedPayloads, ...newPayloads];
+
     // 2. Persistir localmente en StorageService (IndexedDB)
-    for (const item of updatedPayloads) {
+    for (const item of allChanged) {
       try {
         await StorageService.saveEntity('transactions', item);
       } catch (err) {
@@ -377,17 +455,28 @@ class TransactionService {
     // 3. Persistir en Cloud Firestore mediante lotes de máximo 500 operaciones
     try {
       if (firestoreService.currentUserId) {
-        await firestoreService.reassignTransactionsCategory(sourceCategoryId, targetCategoryId, updatedPayloads);
+        await firestoreService.reassignTransactionsCategory(sourceCategoryId, targetCategoryId, allChanged);
       }
     } catch (err) {
       console.warn('[TransactionService] Error en persistencia Firestore durante reasignación:', err);
     }
 
+    const finalMovedAmount = amountInCents !== null ? amountInCents : totalAvailable;
+
     // 4. Emitir eventos en el eventBus para refrescar dashboard, balance y lista de movimientos
-    eventBus.emit('transactions:reassigned', { sourceCategoryId, targetCategoryId, count: updatedPayloads.length });
+    eventBus.emit('transactions:reassigned', {
+      sourceCategoryId,
+      targetCategoryId,
+      count: allChanged.length,
+      amount: finalMovedAmount
+    });
     eventBus.emit('dashboard:refresh');
 
-    return { success: true, count: updatedPayloads.length };
+    return {
+      success: true,
+      count: allChanged.length,
+      amount: finalMovedAmount
+    };
   }
 }
 
