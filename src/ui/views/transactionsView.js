@@ -1,17 +1,24 @@
 /**
- * Vista de Movimientos con paginación de alto rendimiento, búsqueda y filtros avanzados.
+ * Vista de Movimientos con paginación de alto rendimiento, búsqueda, filtros avanzados,
+ * ordenamiento interactivo por columnas y acciones en lote (Bulk Actions).
  */
 import { transactionService } from '../../services/transactionService.js';
 import { currencyService } from '../../services/currencyService.js';
 import { categoryService } from '../../services/categoryService.js';
 import { accountService } from '../../services/accountService.js';
 import { iconHtml } from '../icons.js';
+import { customDropdownManager } from '../components/customDropdown.js';
+import { Toast } from '../toast.js';
+import { Modal } from '../modal.js';
+import { eventBus } from '../../core/eventBus.js';
 
 export class TransactionsView {
   static currentPage = 1;
   static pageSize = 25;
   static sortBy = 'date';
   static sortOrder = 'desc';
+  static selectedIds = new Set();
+  static isEventsInitialized = false;
 
   static escape(str) {
     return String(str ?? '').replace(/[&<>"']/g, c => ({
@@ -20,6 +27,8 @@ export class TransactionsView {
   }
 
   static render() {
+    this.initEvents();
+
     const search = document.getElementById('transactionSearch')?.value || '';
     const type = document.getElementById('typeFilter')?.value || 'all';
     const categoryId = document.getElementById('categoryFilter')?.value || 'all';
@@ -40,7 +49,7 @@ export class TransactionsView {
 
     // Asegurar página válida
     if (this.currentPage > queryResult.totalPages) {
-      this.currentPage = queryResult.totalPages;
+      this.currentPage = Math.max(1, queryResult.totalPages);
     }
 
     const tbody = document.getElementById('transactionsTableBody');
@@ -91,6 +100,9 @@ export class TransactionsView {
               if (catSelect) catSelect.value = 'all';
               if (accSelect) accSelect.value = 'all';
               if (monthInput) monthInput.value = '';
+              const txMonthLabel = document.getElementById('transactionMonthLabel');
+              if (txMonthLabel) txMonthLabel.textContent = 'Todos los meses';
+              customDropdownManager.syncAll();
               this.resetPagination();
               this.render();
             });
@@ -99,6 +111,9 @@ export class TransactionsView {
       }
     }
     if (table) table.classList.toggle('hidden', queryResult.totalCount === 0);
+
+    // Sincronizar encabezados de ordenamiento visual
+    this.updateSortHeaders();
 
     if (!tbody) return;
 
@@ -152,9 +167,13 @@ export class TransactionsView {
       const pocket = t.pocketId ? (acc.pockets || []).find(p => p.id === t.pocketId) : null;
       const pocketLabel = pocket ? ` · [Alcancía: ${this.escape(pocket.name)}]` : '';
       const iconBg = `${cat.color}1c`;
+      const isSelected = this.selectedIds.has(t.id);
 
       return `
-        <tr>
+        <tr class="${isSelected ? 'row-selected' : ''}">
+          <td class="td-checkbox">
+            <input type="checkbox" class="tx-row-check" data-id="${t.id}" ${isSelected ? 'checked' : ''} aria-label="Seleccionar ${this.escape(t.title)}" />
+          </td>
           <td>
             <div class="movement-cell">
               <span class="movement-icon" style="background:${iconBg};color:${cat.color}">
@@ -197,7 +216,165 @@ export class TransactionsView {
       `;
     }).join('');
 
+    // Actualizar barra flotante de acciones en lote
+    this.updateBulkActionsUI(queryResult.items);
+
     this.renderPagination(queryResult);
+  }
+
+  static updateSortHeaders() {
+    document.querySelectorAll('.sortable-th').forEach(th => {
+      const col = th.dataset.sort;
+      const isActive = this.sortBy === col;
+      th.classList.toggle('active-sort', isActive);
+      th.setAttribute('data-direction', isActive ? this.sortOrder : '');
+      const icon = th.querySelector('.sort-icon');
+      if (icon) {
+        if (!isActive) {
+          icon.textContent = 'unfold_more';
+        } else {
+          icon.textContent = this.sortOrder === 'asc' ? 'arrow_upward' : 'arrow_downward';
+        }
+      }
+    });
+  }
+
+  static updateBulkActionsUI(items = []) {
+    const bar = document.getElementById('bulkActionsBar');
+    const countEl = document.getElementById('bulkSelectedCount');
+    const selectAllCheckbox = document.getElementById('selectAllTransactions');
+
+    if (bar) {
+      bar.classList.toggle('hidden', this.selectedIds.size === 0);
+    }
+    if (countEl) {
+      countEl.textContent = `${this.selectedIds.size} ${this.selectedIds.size === 1 ? 'seleccionado' : 'seleccionados'}`;
+    }
+
+    if (selectAllCheckbox) {
+      if (items.length === 0) {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
+      } else {
+        const selectedOnPage = items.filter(t => this.selectedIds.has(t.id)).length;
+        selectAllCheckbox.checked = selectedOnPage === items.length && items.length > 0;
+        selectAllCheckbox.indeterminate = selectedOnPage > 0 && selectedOnPage < items.length;
+      }
+    }
+  }
+
+  static initEvents() {
+    if (this.isEventsInitialized) return;
+    this.isEventsInitialized = true;
+
+    // 1. Click en cabeceras ordenables
+    document.addEventListener('click', e => {
+      const th = e.target.closest('.sortable-th');
+      if (th) {
+        const col = th.dataset.sort;
+        if (!col) return;
+        if (this.sortBy === col) {
+          this.sortOrder = this.sortOrder === 'asc' ? 'desc' : 'asc';
+        } else {
+          this.sortBy = col;
+          this.sortOrder = (col === 'date' || col === 'amount') ? 'desc' : 'asc';
+        }
+        this.currentPage = 1;
+        this.render();
+      }
+    });
+
+    // 2. Selección de checkbox de fila individual
+    document.addEventListener('change', e => {
+      if (e.target.classList.contains('tx-row-check')) {
+        const id = e.target.dataset.id;
+        if (e.target.checked) {
+          this.selectedIds.add(id);
+        } else {
+          this.selectedIds.delete(id);
+        }
+        e.target.closest('tr')?.classList.toggle('row-selected', e.target.checked);
+        this.updateBulkActionsUI();
+      }
+    });
+
+    // 3. Seleccionar todos en página
+    document.getElementById('selectAllTransactions')?.addEventListener('change', e => {
+      const isChecked = e.target.checked;
+      document.querySelectorAll('.tx-row-check').forEach(chk => {
+        chk.checked = isChecked;
+        const id = chk.dataset.id;
+        if (isChecked) {
+          this.selectedIds.add(id);
+        } else {
+          this.selectedIds.delete(id);
+        }
+        chk.closest('tr')?.classList.toggle('row-selected', isChecked);
+      });
+      this.updateBulkActionsUI();
+    });
+
+    // 4. Cancelar selección
+    document.getElementById('bulkCancelBtn')?.addEventListener('click', () => {
+      this.selectedIds.clear();
+      this.render();
+    });
+
+    // 5. Eliminación en lote con Undo (Deshacer)
+    document.getElementById('bulkDeleteBtn')?.addEventListener('click', () => {
+      const ids = [...this.selectedIds];
+      if (ids.length === 0) return;
+
+      const count = ids.length;
+      transactionService.deleteBulk(ids);
+      this.selectedIds.clear();
+      this.render();
+      eventBus.emit('store:synced');
+
+      Toast.action(
+        `${count} ${count === 1 ? 'movimiento eliminado' : 'movimientos eliminados'}`,
+        'Deshacer',
+        () => {
+          ids.forEach(id => transactionService.restore(id));
+          this.render();
+          eventBus.emit('store:synced');
+          Toast.success('Movimientos restaurados exitosamente.');
+        },
+        6000
+      );
+    });
+
+    // 6. Abrir modal para reasignar categoría en lote
+    document.getElementById('bulkChangeCategoryBtn')?.addEventListener('click', () => {
+      if (this.selectedIds.size === 0) return;
+      const select = document.getElementById('bulkCategorySelect');
+      if (select) {
+        select.innerHTML = '<option value="" disabled selected hidden>Selecciona una categoría...</option>' +
+          categoryService.getAll().map(c => `<option value="${c.id}">${c.name} · ${c.type === 'income' ? 'Ingreso' : 'Gasto'}</option>`).join('');
+      }
+      Modal.open('#bulkCategoryModal');
+    });
+
+    // 7. Enviar formulario de reasignación en lote
+    document.getElementById('bulkCategoryForm')?.addEventListener('submit', e => {
+      e.preventDefault();
+      const newCatId = document.getElementById('bulkCategorySelect')?.value;
+      if (!newCatId) {
+        Toast.error('Por favor selecciona una categoría');
+        return;
+      }
+      const ids = [...this.selectedIds];
+      const result = transactionService.reassignBulkCategory(ids, newCatId);
+      if (result.success) {
+        this.selectedIds.clear();
+        Modal.closeAll();
+        this.render();
+        eventBus.emit('store:synced');
+        Toast.success(`Se actualizaron ${result.updatedCount} movimientos.`);
+      } else {
+        Toast.error(result.error || 'Error al reasignar categorías');
+      }
+    });
   }
 
   static renderPagination(queryResult) {

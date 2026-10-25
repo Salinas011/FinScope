@@ -17,10 +17,12 @@ import { firestoreService } from './services/firestoreService.js';
 import { Toast } from './ui/toast.js';
 import { Modal } from './ui/modal.js';
 import { getMaterialIconName } from './ui/icons.js';
-import { DashboardView } from './ui/views/dashboardView.js';
 import { initAmountInputs, formatAmountValue } from './ui/amountFormatter.js';
+import { MonthPicker, formatMonthDisplay } from './ui/components/monthPicker.js';
+import { customDropdownManager } from './ui/components/customDropdown.js';
 
 import { router } from './ui/router.js';
+import { modalController } from './ui/controllers/modalController.js';
 
 // Conexión con el enrutador modular
 const loadView = (name) => router.loadView(name);
@@ -37,13 +39,27 @@ class App {
   constructor() {
     this.activeView = 'dashboard';
     this.selectedMonth = new Date().toISOString().slice(0, 7);
-    this.editingTransactionId = null;
-    this.editingAccountId = null;
-    this.editingCategoryId = null;
-    this.editingBudgetId = null;
-    this.editingRecurringId = null;
+    this.modalController = modalController;
     this.pendingCSVTransactions = null;
   }
+
+  get editingTransactionId() { return this.modalController.editingTransactionId; }
+  set editingTransactionId(val) { this.modalController.editingTransactionId = val; }
+
+  get editingAccountId() { return this.modalController.editingAccountId; }
+  set editingAccountId(val) { this.modalController.editingAccountId = val; }
+
+  get editingPocketId() { return this.modalController.editingPocketId; }
+  set editingPocketId(val) { this.modalController.editingPocketId = val; }
+
+  get editingCategoryId() { return this.modalController.editingCategoryId; }
+  set editingCategoryId(val) { this.modalController.editingCategoryId = val; }
+
+  get editingBudgetId() { return this.modalController.editingBudgetId; }
+  set editingBudgetId(val) { this.modalController.editingBudgetId = val; }
+
+  get editingRecurringId() { return this.modalController.editingRecurringId; }
+  set editingRecurringId(val) { this.modalController.editingRecurringId = val; }
 
   async init() {
     Toast.init();
@@ -85,12 +101,16 @@ class App {
     const txMonth = document.getElementById('transactionMonth');
     if (txMonth) txMonth.value = this.selectedMonth;
 
+    const txMonthLabel = document.getElementById('transactionMonthLabel');
+    if (txMonthLabel) txMonthLabel.textContent = formatMonthDisplay(this.selectedMonth);
+
     const picker = document.getElementById('monthPicker');
     if (picker) picker.value = this.selectedMonth;
 
     // Vincular eventos y vistas
     this.bindEvents();
     initAmountInputs();
+    customDropdownManager.init(['typeFilter', 'categoryFilter', 'accountFilter']);
     await router.init({ getSelectedMonth: () => this.selectedMonth });
     this.refreshSelects();
     this.renderAll();
@@ -166,6 +186,16 @@ class App {
       hasInitializedAuth = true;
     });
 
+    // Monitoreo de conectividad y estado de red en tiempo real
+    window.addEventListener('online', () => {
+      this.updateSyncUI(authService.isAuthenticated() ? 'connected' : 'local');
+      Toast.info('Conexión reestablecida. En línea.');
+    });
+    window.addEventListener('offline', () => {
+      this.updateSyncUI('offline');
+      Toast.warning('Modo sin conexión. Guardando localmente.');
+    });
+
     console.log('Finanza v2 iniciado exitosamente.');
   }
 
@@ -186,6 +216,9 @@ class App {
       } else if (status === 'error') {
         badge.innerHTML = `<span class="material-symbols-rounded" style="color:#ef4444;">cloud_off</span> Error de sincronización`;
         badge.title = 'No se pudo conectar con Firestore. Guardando solo localmente.';
+      } else if (status === 'offline') {
+        badge.innerHTML = `<span class="material-symbols-rounded" style="color:var(--amber, #f59e0b);">wifi_off</span> Sin conexión (Local)`;
+        badge.title = 'Modo sin conexión a internet. Guardando cambios de forma segura en este dispositivo.';
       } else {
         badge.innerHTML = `<span class="material-symbols-rounded">verified_user</span> Seguro en este dispositivo`;
         badge.title = 'Almacenamiento local privado';
@@ -453,12 +486,7 @@ class App {
    * Abre directamente el modal original de Cuenta y Sincronización.
    */
   openUserProfileModal() {
-    Modal.open('#userProfileModal');
-    if (!authService.isAuthenticated()) {
-      setTimeout(() => {
-        authService.initGoogleAuth(['googleBtnModal', 'googleBtnSettings', 'googleBtnContainer']);
-      }, 80);
-    }
+    this.modalController.openUserProfileModal();
   }
 
   /**
@@ -482,6 +510,13 @@ class App {
 
   async renderActiveView() {
     await router.renderActiveView();
+  }
+
+  updateMonthPickerButtonLabel(selectedMonth) {
+    const monthLabel = document.getElementById('monthLabel');
+    if (!monthLabel) return;
+    const currentMonthISO = new Date().toISOString().slice(0, 7);
+    monthLabel.textContent = selectedMonth === currentMonthISO ? 'Este mes' : formatMonthDisplay(selectedMonth);
   }
 
   renderAll() {
@@ -591,6 +626,7 @@ class App {
     }
 
     this.refreshPocketSelect();
+    customDropdownManager.syncAll();
   }
 
   refreshPocketSelect() {
@@ -633,352 +669,52 @@ class App {
     }
   }
 
-  // --- Modales y Formularios ---
+  // --- Modales y Formularios (Delegados a ModalController) ---
 
   openTransactionModal(type = 'expense', transaction = null, isDuplicate = false) {
-    this.editingTransactionId = isDuplicate ? null : (transaction?.id || null);
-    const form = document.getElementById('transactionForm');
-    if (form) form.reset();
-
-    const titleEl = document.getElementById('transactionModalTitle');
-    if (titleEl) {
-      titleEl.textContent = (transaction && !isDuplicate) ? 'Editar movimiento' : 'Nuevo movimiento';
-    }
-
-    const typeInput = document.getElementById('transactionType');
-    if (typeInput) typeInput.value = transaction?.type || type;
-
-    document.querySelectorAll('.type-option').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.formType === (transaction?.type || type));
+    this.modalController.openTransactionModal(type, transaction, isDuplicate, {
+      refreshSelects: () => this.refreshSelects(),
+      refreshPocketSelect: () => this.refreshPocketSelect()
     });
-
-    const titleInput = document.getElementById('transactionTitle');
-    const amountInput = document.getElementById('transactionAmount');
-    const dateInput = document.getElementById('transactionDate');
-    const noteInput = document.getElementById('transactionNote');
-    const methodInput = document.getElementById('transactionMethod');
-
-    if (titleInput) titleInput.value = transaction?.title || '';
-    if (amountInput) amountInput.value = transaction ? formatAmountValue(currencyService.fromCents(transaction.amount)) : '';
-    const localToday = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-    if (dateInput) dateInput.value = (transaction && !isDuplicate) ? (transaction.date || localToday) : localToday;
-    if (noteInput) noteInput.value = transaction?.note || '';
-    if (methodInput) methodInput.value = transaction?.method || '';
-
-    this.refreshSelects();
-
-    const catSelect = document.getElementById('transactionCategory');
-    const accSelect = document.getElementById('transactionAccount');
-    if (transaction) {
-      if (catSelect && transaction.categoryId) catSelect.value = transaction.categoryId;
-      if (accSelect && transaction.accountId) accSelect.value = transaction.accountId;
-      this.refreshPocketSelect();
-      const pocketSelect = document.getElementById('transactionPocket');
-      if (pocketSelect && transaction.pocketId) {
-        pocketSelect.value = transaction.pocketId;
-      }
-    } else {
-      if (catSelect) catSelect.value = '';
-    }
-
-    const submitBtn = document.querySelector('#transactionForm button[type=submit]');
-    if (submitBtn) {
-      submitBtn.innerHTML = (transaction && !isDuplicate)
-        ? 'Guardar cambios <span class="material-symbols-rounded" style="font-size: 15px; vertical-align: middle;">arrow_forward</span>'
-        : 'Guardar movimiento <span class="material-symbols-rounded" style="font-size: 15px; vertical-align: middle;">arrow_forward</span>';
-    }
-
-    Modal.open('#transactionModal');
   }
 
   openAccountModal(account = null) {
-    this.editingAccountId = account?.id || null;
-    const form = document.getElementById('accountForm');
-    if (form) form.reset();
-
-    const title = document.getElementById('accountModalTitle');
-    if (title) title.textContent = account ? 'Editar cuenta' : 'Nueva cuenta';
-
-    const idInput = document.getElementById('editingAccountId');
-    const nameInput = document.getElementById('accountName');
-    const typeInput = document.getElementById('accountType');
-    const balanceInput = document.getElementById('accountInitialBalance');
-    const colorInput = document.getElementById('accountColor');
-    const iconInput = document.getElementById('accountIcon');
-
-    if (idInput) idInput.value = account?.id || '';
-    if (nameInput) nameInput.value = account?.name || '';
-    if (typeInput) typeInput.value = account?.type || 'bank';
-    if (balanceInput) balanceInput.value = account?.initialBalance ? formatAmountValue(currencyService.fromCents(account.initialBalance)) : 0;
-    if (colorInput) colorInput.value = account?.color || '#18181b';
-    if (iconInput) iconInput.value = getMaterialIconName(account?.icon, 'account_balance');
-
-    Modal.open('#accountModal');
+    this.modalController.openAccountModal(account);
   }
 
   openPocketModal(accountId, pocket = null) {
-    this.editingPocketId = pocket?.id || null;
-    const form = document.getElementById('pocketForm');
-    if (form) form.reset();
-
-    const accIdInput = document.getElementById('pocketAccountId');
-    const pockIdInput = document.getElementById('editingPocketId');
-    if (accIdInput) accIdInput.value = accountId;
-    if (pockIdInput) pockIdInput.value = pocket?.id || '';
-
-    const title = document.getElementById('pocketModalTitle');
-    if (title) title.textContent = pocket ? 'Editar alcancía' : 'Nueva alcancía';
-
-    const nameInput = document.getElementById('pocketName');
-    const targetInput = document.getElementById('pocketTargetAmount');
-    const colorInput = document.getElementById('pocketColor');
-    const iconInput = document.getElementById('pocketIcon');
-
-    if (nameInput) nameInput.value = pocket?.name || '';
-    if (targetInput) targetInput.value = pocket?.targetAmount ? formatAmountValue(currencyService.fromCents(pocket.targetAmount)) : '';
-    if (colorInput) colorInput.value = pocket?.color || '#3f3f46';
-    if (iconInput) iconInput.value = pocket?.icon || 'savings';
-
-    Modal.open('#pocketModal');
+    this.modalController.openPocketModal(accountId, pocket);
   }
 
   openPocketActionModal(accountId, pocketId, pocketName, mode = 'deposit') {
-    const form = document.getElementById('pocketActionForm');
-    if (form) form.reset();
-
-    const accIdInput = document.getElementById('pocketActionAccountId');
-    const pockIdInput = document.getElementById('pocketActionPocketId');
-    const modeInput = document.getElementById('pocketActionMode');
-
-    if (accIdInput) accIdInput.value = accountId;
-    if (pockIdInput) pockIdInput.value = pocketId;
-    if (modeInput) modeInput.value = mode;
-
-    const titleEl = document.getElementById('pocketActionModalTitle');
-    const subtitleEl = document.getElementById('pocketActionSubtitle');
-    const submitBtn = document.getElementById('pocketActionSubmitBtn');
-
-    const fundingGroup = document.getElementById('pocketFundingSourceGroup');
-    if (fundingGroup) {
-      fundingGroup.style.display = mode === 'deposit' ? 'block' : 'none';
-      const defaultRadio = document.querySelector('input[name="pocketFundingSource"][value="available"]');
-      if (defaultRadio) defaultRadio.checked = true;
-    }
-
-    if (mode === 'deposit') {
-      if (titleEl) titleEl.textContent = `Meter dinero a "${pocketName}"`;
-      if (subtitleEl) subtitleEl.textContent = 'Mueve dinero desde tu disponible o añade fondeo inicial a esta alcancía.';
-      if (submitBtn) submitBtn.textContent = 'Asignar a alcancía';
-    } else {
-      if (titleEl) titleEl.textContent = `Sacar dinero de "${pocketName}"`;
-      if (subtitleEl) subtitleEl.textContent = 'Retira dinero desde esta alcancía hacia tu saldo disponible.';
-      if (submitBtn) submitBtn.textContent = 'Retirar a disponible';
-    }
-
-    Modal.open('#pocketActionModal');
+    this.modalController.openPocketActionModal(accountId, pocketId, pocketName, mode);
   }
 
   openTransferModal() {
-    const form = document.getElementById('transferForm');
-    if (form) form.reset();
-
-    const dateInput = document.getElementById('transferDate');
-    if (dateInput) dateInput.value = new Date().toISOString().slice(0, 10);
-
-    this.refreshSelects();
-    Modal.open('#transferModal');
+    this.modalController.openTransferModal({
+      refreshSelects: () => this.refreshSelects()
+    });
   }
 
   openCategoryModal(category = null) {
-    this.editingCategoryId = category?.id || null;
-    const form = document.getElementById('categoryForm');
-    if (form) form.reset();
-
-    const title = document.getElementById('categoryModalTitle');
-    if (title) title.textContent = category ? 'Editar categoría' : 'Nueva categoría';
-
-    const idInput = document.getElementById('editingCategoryId');
-    const nameInput = document.getElementById('categoryName');
-    const typeInput = document.getElementById('categoryType');
-    const colorInput = document.getElementById('categoryColor');
-    const iconInput = document.getElementById('categoryIcon');
-
-    if (idInput) idInput.value = category?.id || '';
-    if (nameInput) nameInput.value = category?.name || '';
     const activeTab = loadedViews.categories?.activeTab || 'expense';
-    if (typeInput) typeInput.value = category?.type || activeTab;
-    if (colorInput) colorInput.value = category?.color || '#52525b';
-    if (iconInput) iconInput.value = getMaterialIconName(category?.icon, 'category');
-
-    Modal.open('#categoryModal');
+    this.modalController.openCategoryModal(category, activeTab);
   }
 
   openBudgetModal(budget = null) {
-    this.editingBudgetId = budget?.id || null;
-    const form = document.getElementById('budgetForm');
-    if (form) form.reset();
-
-    const title = document.getElementById('budgetModalTitle');
-    if (title) title.textContent = budget ? 'Editar presupuesto' : 'Crear presupuesto';
-
-    this.refreshSelects();
-
-    const idInput = document.getElementById('editingBudgetId');
-    const catSelect = document.getElementById('budgetCategory');
-    const limitInput = document.getElementById('budgetLimit');
-    const noteInput = document.getElementById('budgetNote');
-
-    if (idInput) idInput.value = budget?.id || '';
-    if (catSelect) catSelect.value = budget ? budget.categoryId : '';
-    if (limitInput) limitInput.value = budget?.limit ? formatAmountValue(currencyService.fromCents(budget.limit)) : '';
-    if (noteInput) noteInput.value = budget?.note || '';
-
-    Modal.open('#budgetModal');
+    this.modalController.openBudgetModal(budget, {
+      refreshSelects: () => this.refreshSelects()
+    });
   }
 
   openRecurringModal(recurring = null) {
-    this.editingRecurringId = recurring?.id || null;
-    const form = document.getElementById('recurringForm');
-    if (form) form.reset();
-
-    const title = document.getElementById('recurringModalTitle');
-    if (title) title.textContent = recurring ? 'Editar recurrente' : 'Nueva suscripción o gasto fijo';
-
-    this.refreshSelects();
-
-    const idInput = document.getElementById('editingRecurringId');
-    const titleInput = document.getElementById('recurringTitle');
-    const amountInput = document.getElementById('recurringAmount');
-    const freqSelect = document.getElementById('recurringFrequency');
-    const dayInput = document.getElementById('recurringDueDay');
-    const catSelect = document.getElementById('recurringCategory');
-    const accSelect = document.getElementById('recurringAccount');
-    const noteInput = document.getElementById('recurringNote');
-
-    if (idInput) idInput.value = recurring?.id || '';
-    if (titleInput) titleInput.value = recurring?.title || '';
-    if (amountInput) amountInput.value = recurring?.amount ? formatAmountValue(currencyService.fromCents(recurring.amount)) : '';
-    if (freqSelect) freqSelect.value = recurring?.frequency || 'monthly';
-    if (dayInput) dayInput.value = recurring?.dueDay || 1;
-    if (catSelect) catSelect.value = recurring ? recurring.categoryId : '';
-    if (accSelect && recurring) accSelect.value = recurring.accountId;
-    if (noteInput) noteInput.value = recurring?.note || '';
-
-    Modal.open('#recurringModal');
+    this.modalController.openRecurringModal(recurring, {
+      refreshSelects: () => this.refreshSelects()
+    });
   }
 
-  /**
-   * Abre el diálogo de reasignación de saldo/movimientos entre categorías.
-   * @param {string} sourceCategoryId
-   */
   openReassignCategoryModal(sourceCategoryId) {
-    const cat = categoryService.getById(sourceCategoryId);
-    if (!cat) return;
-
-    const activeTxs = (store.transactions || []).filter(t => !t.deletedAt && t.categoryId === sourceCategoryId);
-    const count = activeTxs.length;
-    const totalCents = activeTxs.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-
-    const form = document.getElementById('reassignCategoryForm');
-    if (form) form.reset();
-
-    const sourceIdInput = document.getElementById('reassignSourceCategoryId');
-    const sourceNameEl = document.getElementById('reassignSourceCategoryName');
-    const sourceCountEl = document.getElementById('reassignSourceCountText');
-    const sourceBalanceEl = document.getElementById('reassignSourceBalanceText');
-    const targetSelect = document.getElementById('reassignTargetCategory');
-    const amountInput = document.getElementById('reassignAmount');
-    const validationMsg = document.getElementById('reassignValidationMsg');
-    const submitBtn = document.getElementById('reassignSubmitBtn');
-
-    if (sourceIdInput) sourceIdInput.value = sourceCategoryId;
-    if (sourceNameEl) sourceNameEl.textContent = `${cat.name} · ${cat.type === 'income' ? 'Ingreso' : 'Gasto'}`;
-    if (sourceCountEl) {
-      sourceCountEl.textContent = `${count} ${count === 1 ? 'movimiento activo' : 'movimientos activos'}`;
-    }
-    if (sourceBalanceEl) {
-      sourceBalanceEl.textContent = currencyService.format(totalCents);
-    }
-
-    if (targetSelect) {
-      const candidates = categoryService.getAll().filter(c => c.id !== sourceCategoryId && c.type === cat.type);
-      targetSelect.innerHTML = '<option value="" disabled selected hidden>Selecciona una categoría de destino...</option>' +
-        candidates.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-      targetSelect.value = '';
-    }
-
-    if (amountInput) {
-      amountInput.value = '';
-    }
-
-    if (validationMsg) {
-      validationMsg.style.display = 'none';
-      validationMsg.textContent = '';
-    }
-
-    const updateSubmitState = () => {
-      const targetId = targetSelect?.value;
-      const targetCat = targetId ? categoryService.getById(targetId) : null;
-      const amountVal = amountInput?.value || '';
-      const cents = currencyService.toCents(amountVal);
-
-      if (validationMsg) {
-        validationMsg.style.display = 'none';
-        validationMsg.textContent = '';
-      }
-
-      if (totalCents <= 0) {
-        if (submitBtn) {
-          submitBtn.disabled = true;
-          submitBtn.textContent = 'Sin saldo disponible para mover';
-        }
-        if (validationMsg) {
-          validationMsg.textContent = 'Esta categoría no tiene movimientos activos con saldo para transferir.';
-          validationMsg.style.display = 'block';
-        }
-        return;
-      }
-
-      if (!targetId) {
-        if (submitBtn) {
-          submitBtn.disabled = true;
-          submitBtn.textContent = 'Selecciona una categoría de destino';
-        }
-        return;
-      }
-
-      if (cents <= 0) {
-        if (submitBtn) {
-          submitBtn.disabled = true;
-          submitBtn.textContent = 'Ingresa un valor a mover';
-        }
-        return;
-      }
-
-      if (cents > totalCents) {
-        if (submitBtn) {
-          submitBtn.disabled = true;
-          submitBtn.textContent = 'Monto supera el disponible';
-        }
-        if (validationMsg) {
-          validationMsg.textContent = `El valor no puede superar el total disponible de la categoría (${currencyService.format(totalCents)}).`;
-          validationMsg.style.display = 'block';
-        }
-        return;
-      }
-
-      // Válido
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.textContent = `Mover ${currencyService.format(cents)} a ${targetCat?.name || 'Destino'}`;
-      }
-    };
-
-    targetSelect?.addEventListener('change', updateSubmitState);
-    amountInput?.addEventListener('input', updateSubmitState);
-
-    updateSubmitState();
-    Modal.open('#reassignCategoryModal');
+    this.modalController.openReassignCategoryModal(sourceCategoryId);
   }
 
   // --- Manejadores de Eventos ---
@@ -1030,18 +766,39 @@ class App {
       }
     });
 
-    // 3. Selector de mes global
+    // 3. Selector de mes global con MonthPicker personalizado
     document.getElementById('monthPicker')?.addEventListener('change', e => {
       if (/^\d{4}-\d{2}$/.test(e.target.value)) {
         this.selectedMonth = e.target.value;
+        this.updateMonthPickerButtonLabel(e.target.value);
         this.renderAll();
       }
     });
 
-    document.getElementById('monthPickerButton')?.addEventListener('click', () => {
-      const picker = document.getElementById('monthPicker');
-      if (picker?.showPicker) picker.showPicker();
-      else picker?.click();
+    document.getElementById('monthPickerButton')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      MonthPicker.open({
+        anchorEl: document.getElementById('monthPickerButton'),
+        value: this.selectedMonth,
+        clearText: 'Este mes',
+        onChange: (newMonth) => {
+          if (/^\d{4}-\d{2}$/.test(newMonth)) {
+            this.selectedMonth = newMonth;
+            const picker = document.getElementById('monthPicker');
+            if (picker) picker.value = newMonth;
+            this.updateMonthPickerButtonLabel(newMonth);
+            this.renderAll();
+          }
+        },
+        onClear: () => {
+          const currentMonthISO = new Date().toISOString().slice(0, 7);
+          this.selectedMonth = currentMonthISO;
+          const picker = document.getElementById('monthPicker');
+          if (picker) picker.value = currentMonthISO;
+          this.updateMonthPickerButtonLabel(currentMonthISO);
+          this.renderAll();
+        }
+      });
     });
 
     // 4. Conmutador de tema claro/oscuro
@@ -1139,6 +896,21 @@ class App {
       });
 
       if (result.success) {
+        // Si el usuario marcó "Repetir todos los meses", crear regla recurrente mensual automática
+        const recurringCheck = document.getElementById('transactionRecurringCheck');
+        if (recurringCheck?.checked && !this.editingTransactionId) {
+          const dueDay = Math.min(28, Math.max(1, parseInt(date.slice(8, 10), 10) || 1));
+          recurringService.saveRecurring({
+            title,
+            amount,
+            frequency: 'monthly',
+            dueDay,
+            categoryId,
+            accountId,
+            note: `Regla automática desde movimiento: ${title}`
+          });
+        }
+
         Toast.success(this.editingTransactionId ? 'Movimiento actualizado.' : 'Movimiento registrado con éxito.');
         Modal.closeAll();
         this.selectedMonth = date.slice(0, 7);
@@ -1404,6 +1176,42 @@ class App {
       debounceTimer = setTimeout(handleFilterChange, 220);
     });
 
+    const updateTxMonthLabel = (val) => {
+      const label = document.getElementById('transactionMonthLabel');
+      if (label) {
+        label.textContent = val ? formatMonthDisplay(val) : 'Todos los meses';
+      }
+    };
+
+    const initialTxMonth = document.getElementById('transactionMonth')?.value;
+    if (initialTxMonth) updateTxMonthLabel(initialTxMonth);
+
+    document.getElementById('transactionMonthButton')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const currentVal = document.getElementById('transactionMonth')?.value || '';
+      MonthPicker.open({
+        anchorEl: document.getElementById('transactionMonthButton'),
+        value: currentVal,
+        clearText: 'Todos los meses',
+        onChange: (newMonth) => {
+          const input = document.getElementById('transactionMonth');
+          if (input) {
+            input.value = newMonth;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          updateTxMonthLabel(newMonth);
+        },
+        onClear: () => {
+          const input = document.getElementById('transactionMonth');
+          if (input) {
+            input.value = '';
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          updateTxMonthLabel('');
+        }
+      });
+    });
+
     ['typeFilter', 'categoryFilter', 'accountFilter', 'transactionMonth'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', handleFilterChange);
     });
@@ -1420,6 +1228,9 @@ class App {
       if (cat) cat.value = 'all';
       if (acc) acc.value = 'all';
       if (month) month.value = '';
+
+      updateTxMonthLabel('');
+      customDropdownManager.syncAll();
 
       const TransactionsView = await loadView('transactions');
       TransactionsView?.resetPagination();
@@ -1580,11 +1391,20 @@ class App {
           if (!tx) return;
           Modal.confirm(
             '¿Eliminar movimiento?',
-            `Se eliminará “${tx.title}” de tus registros permanentemente.`,
+            `Se eliminará “${tx.title}” de tus registros. Podrás deshacer la acción si te equivocas.`,
             () => {
               transactionService.deleteTransaction(id);
-              Toast.success('Movimiento eliminado.');
               this.renderAll();
+              Toast.action(
+                `Movimiento “${tx.title}” eliminado`,
+                'Deshacer',
+                () => {
+                  transactionService.restore(id);
+                  this.renderAll();
+                  Toast.success('Movimiento restaurado exitosamente.');
+                },
+                6000
+              );
             }
           );
         });
@@ -1822,6 +1642,28 @@ class App {
         const stats = transactionService.getMonthStats(this.selectedMonth);
         DashboardView.render(this.selectedMonth);
       }
+    });
+
+    // 15. Atajos rápidos de fecha (Hoy / Ayer) en modales
+    document.addEventListener('click', e => {
+      const chip = e.target.closest('.date-chip');
+      if (chip) {
+        const targetId = chip.dataset.target;
+        const targetInput = document.getElementById(targetId);
+        if (!targetInput) return;
+        const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
+        if (chip.dataset.quickDate === 'today') {
+          targetInput.value = now.toISOString().slice(0, 10);
+        } else if (chip.dataset.quickDate === 'yesterday') {
+          now.setDate(now.getDate() - 1);
+          targetInput.value = now.toISOString().slice(0, 10);
+        }
+      }
+    });
+
+    // 16. Imprimir o Exportar reporte a PDF
+    document.getElementById('btnPrintReport')?.addEventListener('click', () => {
+      window.print();
     });
   }
 }

@@ -57,7 +57,7 @@ if (!isFirebaseConfigured) {
   );
 }
 
-const app = isFirebaseConfigured
+export const app = isFirebaseConfigured
   ? (getApps().length > 0 ? getApp() : initializeApp(firebaseConfig))
   : null;
 
@@ -553,8 +553,7 @@ class FirestoreService {
    * Instala listeners de tiempo real en cada subcolección.
    */
   listenToSubcollections() {
-    this.unsubscribers.forEach(unsub => unsub());
-    this.unsubscribers = [];
+    this._clearUnsubscribers();
 
     if (!db || !this.currentUserId) return;
 
@@ -893,12 +892,36 @@ class FirestoreService {
   }
 
   /**
-   * Desconecta observadores al cerrar sesión.
+   * Ejecuta con seguridad todas las funciones de desuscripción de listeners evitando excepciones no controladas.
+   */
+  _clearUnsubscribers() {
+    if (Array.isArray(this.unsubscribers)) {
+      this.unsubscribers.forEach(unsub => {
+        try {
+          if (typeof unsub === 'function') {
+            unsub();
+          }
+        } catch (err) {
+          console.warn('[Firestore] Error al invocar función de desuscripción:', err);
+        }
+      });
+    }
+    this.unsubscribers = [];
+  }
+
+  /**
+   * Desconecta observadores y limpia referencias al cerrar sesión o cambiar de usuario.
+   * Previene fugas de memoria y desvincula callbacks activos al store.
    */
   detachUser() {
-    this.unsubscribers.forEach(unsub => unsub());
-    this.unsubscribers = [];
+    this._clearUnsubscribers();
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+      this.saveTimeout = null;
+    }
+    this._activePullPromise = null;
     this.currentUserId = null;
+    this.isApplyingRemoteChange = false;
     this.setSyncStatus('disconnected');
   }
 }

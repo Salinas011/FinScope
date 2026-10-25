@@ -57,34 +57,44 @@ class CurrencyService {
     // Normalizar string: quitar espacios y signos de moneda
     let clean = String(value).trim().replace(/[$€£S\/\s]/g, '');
     if (!clean) return 0;
-    
-    // Si contiene comas y puntos, determinar cuál es separador decimal
+
+    const config = this.getCurrencyConfig();
     const hasComma = clean.includes(',');
     const hasDot = clean.includes('.');
 
     if (hasComma && hasDot) {
-      // Formato latino/europeo (1.234,56) vs anglosajón (1,234.56)
+      // 1. Coexisten coma y punto: el último es el separador decimal
       if (clean.lastIndexOf(',') > clean.lastIndexOf('.')) {
         clean = clean.replace(/\./g, '').replace(',', '.');
       } else {
         clean = clean.replace(/,/g, '');
       }
     } else if (hasComma) {
+      // 2. Solo contiene coma(s)
       const commaParts = clean.split(',');
       if (commaParts.length > 2) {
+        // Múltiples comas son separadores de miles (ej: 1,000,000)
+        clean = clean.replace(/,/g, '');
+      } else if (config.decimals === 0 && commaParts.length === 2 && commaParts[1].length === 3 && commaParts[0].length >= 1) {
+        // Si la moneda carece de decimales y son 3 dígitos exactos, es miles (ej: 225,000 en COP)
         clean = clean.replace(/,/g, '');
       } else {
+        // Tratar como separador decimal
         clean = clean.replace(',', '.');
       }
     } else if (hasDot) {
+      // 3. Solo contiene punto(s)
       const dotParts = clean.split('.');
       if (dotParts.length > 2) {
-        // Múltiples puntos (ej: 1.000.000) son separadores de miles
+        // Múltiples puntos son siempre separadores de miles (ej: 1.000.000)
         clean = clean.replace(/\./g, '');
-      } else if (dotParts.length === 2 && dotParts[1].length === 3 && dotParts[0].length >= 1 && dotParts[0].length <= 3) {
-        // Separador de miles latino sin decimales (ej: "225.000" o "1.250")
-        clean = clean.replace(/\./g, '');
+      } else if (config.decimals === 0) {
+        // La moneda carece de decimales (ej. COP): punto con 3 dígitos es miles (ej: 225.000 o 1.250)
+        if (dotParts.length === 2 && dotParts[1].length === 3 && dotParts[0].length >= 1) {
+          clean = clean.replace(/\./g, '');
+        }
       }
+      // Si config.decimals > 0 y es un solo punto, no se asume miles automáticamente y se preserva como decimal
     }
 
     const num = parseFloat(clean);

@@ -13,6 +13,7 @@ class Store {
     this._state = StorageService.getBlankState();
     this._isHydrated = false;
     this._subscribers = new Set();
+    this._writeQueue = Promise.resolve();
   }
 
   /**
@@ -119,15 +120,18 @@ class Store {
       ...partial
     };
 
-    // Persistencia asíncrona desacoplada en IndexedDB
-    StorageService.saveState(this._state).then(result => {
-      if (!result.success) {
-        eventBus.emit('error:storage', result.error);
-      }
-    }).catch(err => {
-      console.error('[Store] Error guardando estado en IndexedDB:', err);
-      eventBus.emit('error:storage', 'No se pudieron guardar los cambios en la base de datos.');
-    });
+    // Persistencia asíncrona serializada FIFO en IndexedDB
+    this._writeQueue = this._writeQueue
+      .then(() => StorageService.saveState(this._state))
+      .then(result => {
+        if (result && !result.success) {
+          eventBus.emit('error:storage', result.error);
+        }
+      })
+      .catch(err => {
+        console.error('[Store] Error guardando estado en IndexedDB:', err);
+        eventBus.emit('error:storage', 'No se pudieron guardar los cambios en la base de datos.');
+      });
 
     // 1. Notificar a observadores síncronos de la UI
     this._notifySubscribers(this._state, prevState);
@@ -169,7 +173,19 @@ class Store {
       version: 3
     };
 
-    await StorageService.saveState(this._state);
+    this._writeQueue = this._writeQueue
+      .then(() => StorageService.saveState(this._state))
+      .then(result => {
+        if (result && !result.success) {
+          eventBus.emit('error:storage', result.error);
+        }
+      })
+      .catch(err => {
+        console.error('[Store] Error guardando estado en IndexedDB:', err);
+        eventBus.emit('error:storage', 'No se pudieron guardar los cambios en la base de datos.');
+      });
+
+    await this._writeQueue;
     this._notifySubscribers(this._state);
     eventBus.emit('state:replaced', this._state);
     eventBus.emit('state:changed', { state: this._state, actionTag: 'state:replaced' });

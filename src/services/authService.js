@@ -3,9 +3,12 @@
  * Servicio de Autenticación con Google Identity Services (GIS).
  */
 
+import { getAuth, signInWithCredential, GoogleAuthProvider, signOut as fbSignOut } from 'firebase/auth';
 import { store } from '../core/store.js';
 import { eventBus } from '../core/eventBus.js';
-import { firestoreService } from './firestoreService.js';
+import { app, firestoreService } from './firestoreService.js';
+
+export const auth = app ? getAuth(app) : null;
 
 export const GOOGLE_CLIENT_ID =
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GOOGLE_CLIENT_ID) ||
@@ -150,14 +153,28 @@ class AuthService {
     const payload = this.parseJwt(response.credential);
     if (!payload) return;
 
-    const uid = payload.sub || payload.uid || payload.email;
+    let firebaseUid = null;
+    let firebaseUser = null;
+
+    if (auth) {
+      try {
+        const credential = GoogleAuthProvider.credential(response.credential);
+        const userCredential = await signInWithCredential(auth, credential);
+        firebaseUser = userCredential?.user;
+        firebaseUid = firebaseUser?.uid;
+      } catch (authErr) {
+        console.warn('[AuthService] No se pudo autenticar ante Firebase Auth (modo offline o token simulado):', authErr.message || authErr);
+      }
+    }
+
+    const uid = firebaseUid || payload.sub || payload.uid || payload.email;
     this.currentUser = {
       ...payload,
       uid,
       id: uid,
-      name: payload.name,
-      email: payload.email,
-      picture: payload.picture,
+      name: firebaseUser?.displayName || payload.name,
+      email: firebaseUser?.email || payload.email,
+      picture: firebaseUser?.photoURL || payload.picture,
       givenName: payload.given_name || payload.givenName,
       familyName: payload.family_name || payload.familyName,
       token: response.credential,
@@ -191,6 +208,14 @@ class AuthService {
         });
       } catch (e) {
         console.warn('Revocación completada localmente.');
+      }
+    }
+
+    if (auth && auth.currentUser) {
+      try {
+        await fbSignOut(auth);
+      } catch (e) {
+        console.warn('[AuthService] Error cerrando sesión en Firebase Auth:', e);
       }
     }
 

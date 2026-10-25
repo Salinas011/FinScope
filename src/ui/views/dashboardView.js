@@ -71,6 +71,15 @@ export class DashboardView {
       savingsProgressEl.style.width = `${Math.max(0, Math.min(100, stats.savingsRate))}%`;
     }
 
+    // MoM (Month over Month) Trends comparativo con el mes anterior
+    const prevDate = new Date(year, month - 2, 1);
+    const prevMonthISO = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+    const prevStats = transactionService.getMonthStats(prevMonthISO);
+
+    this.renderTrend('balanceTrend', stats.balance, prevStats.balance, 'balance');
+    this.renderTrend('incomeTrend', stats.income, prevStats.income, 'income');
+    this.renderTrend('expenseTrend', stats.expense, prevStats.expense, 'expense');
+
     // 2.1 Proyección de gasto al cierre del mes
     const today = new Date();
     const currentYear = today.getFullYear();
@@ -168,6 +177,42 @@ export class DashboardView {
     }).join('');
   }
 
+  static renderTrend(elementId, currentVal, prevVal, metricType) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+
+    if (prevVal === 0 && currentVal === 0) {
+      el.innerHTML = `<span class="trend-subtle neutral"><span class="material-symbols-rounded">trending_flat</span> 0% vs mes anterior</span>`;
+      return;
+    }
+
+    if (prevVal === 0) {
+      el.innerHTML = `<span class="trend-subtle neutral"><span class="material-symbols-rounded">trending_up</span> Primer mes de datos</span>`;
+      return;
+    }
+
+    const diff = currentVal - prevVal;
+    const pct = Math.round((diff / Math.abs(prevVal)) * 100);
+    const sign = pct > 0 ? '+' : '';
+
+    let isPositive = false;
+    let icon = 'trending_flat';
+
+    if (metricType === 'income') {
+      isPositive = pct >= 0;
+      icon = pct >= 0 ? 'trending_up' : 'trending_down';
+    } else if (metricType === 'expense') {
+      isPositive = pct <= 0;
+      icon = pct > 0 ? 'trending_up' : 'trending_down';
+    } else {
+      isPositive = diff >= 0;
+      icon = diff >= 0 ? 'trending_up' : 'trending_down';
+    }
+
+    const trendClass = isPositive ? 'trend-positive' : 'trend-negative';
+    el.innerHTML = `<span class="trend-subtle ${trendClass}"><span class="material-symbols-rounded">${icon}</span> ${sign}${pct}% vs mes anterior</span>`;
+  }
+
   static renderBudgetPreview(month) {
     const container = document.getElementById('budgetPreview');
     const empty = document.getElementById('budgetPreviewEmpty');
@@ -180,15 +225,26 @@ export class DashboardView {
 
     container.innerHTML = budgets.map(b => {
       const c = b.category;
+      let alertBadge = `<span class="budget-pct">${b.percentage}%</span>`;
+      let barBg = c.color || '#27272a';
+
+      if (b.isOver) {
+        alertBadge = `<span class="budget-alert-pill danger"><span class="material-symbols-rounded">warning</span> ¡Excedido! (${b.percentage}%)</span>`;
+        barBg = '#ef4444';
+      } else if (b.percentage >= 85) {
+        alertBadge = `<span class="budget-alert-pill warning"><span class="material-symbols-rounded">error_outline</span> Alerta (${b.percentage}%)</span>`;
+        barBg = '#f59e0b';
+      }
+
       return `
         <div class="budget-preview-row">
           <div class="budget-preview-head">
             <span class="mini-icon" style="background:${c.color}1c;color:${c.color}">${iconHtml(c.icon, 'category')}</span>
             <strong>${this.escape(c.name)}</strong>
-            <span>${b.percentage}%</span>
+            ${alertBadge}
           </div>
           <div class="budget-progress">
-            <span class="${b.isOver ? 'over' : ''}" style="width:${Math.min(100, b.percentage)}%;background:${b.isOver ? '#71717a' : (c.color || '#27272a')}"></span>
+            <span class="${b.isOver ? 'over' : ''}" style="width:${Math.min(100, b.percentage)}%;background:${barBg}"></span>
           </div>
           <div class="budget-preview-meta">
             <span>${currencyService.format(b.spent)} gastados</span>

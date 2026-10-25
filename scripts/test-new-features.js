@@ -255,5 +255,85 @@ await test('transactionService.reassignCategory: valida montos inválidos o supe
   assert.strictEqual(resZero.success, false);
 });
 
+console.log('\n=== 4. Acciones en lote (Bulk Actions), Restauración (Undo) y Ordenamiento ===');
+
+await test('transactionService.deleteBulk y restore: borra múltiples transacciones y permite restaurar con Undo', async () => {
+  const tx1 = { id: 'tx-bulk-1', title: 'Almuerzo', amount: 2000000, type: 'expense', categoryId: 'cat-1', accountId: 'acc-1', date: '2026-10-01', deletedAt: null };
+  const tx2 = { id: 'tx-bulk-2', title: 'Cine', amount: 3500000, type: 'expense', categoryId: 'cat-1', accountId: 'acc-1', date: '2026-10-02', deletedAt: null };
+  const tx3 = { id: 'tx-bulk-3', title: 'Salario', amount: 10000000, type: 'income', categoryId: 'cat-2', accountId: 'acc-1', date: '2026-10-03', deletedAt: null };
+
+  store.setState({ transactions: [tx1, tx2, tx3] });
+
+  // 1. Borrado en lote de tx1 y tx2
+  const delResult = transactionService.deleteBulk(['tx-bulk-1', 'tx-bulk-2']);
+  assert.strictEqual(delResult.success, true);
+  assert.strictEqual(delResult.deletedCount, 2);
+
+  // Verificar que activas solo queda tx3
+  const activeTx = transactionService.getAll();
+  assert.strictEqual(activeTx.length, 1);
+  assert.strictEqual(activeTx[0].id, 'tx-bulk-3');
+
+  // Verificar que getDeleted() retorna tx1 y tx2
+  const deleted = transactionService.getDeleted();
+  assert.strictEqual(deleted.length, 2);
+  assert.ok(deleted.some(t => t.id === 'tx-bulk-1'));
+  assert.ok(deleted.some(t => t.id === 'tx-bulk-2'));
+
+  // 2. Restauración con Undo
+  const res1 = transactionService.restore('tx-bulk-1');
+  assert.strictEqual(res1.success, true);
+  assert.strictEqual(transactionService.getAll().length, 2);
+
+  const res2 = transactionService.restore('tx-bulk-2');
+  assert.strictEqual(res2.success, true);
+  assert.strictEqual(transactionService.getAll().length, 3);
+  assert.strictEqual(transactionService.getDeleted().length, 0);
+});
+
+await test('transactionService.reassignBulkCategory: reasigna categorías en lote correctamente', async () => {
+  const tx1 = { id: 'tx-cat-1', title: 'Item 1', amount: 100000, type: 'expense', categoryId: 'cat-old', accountId: 'acc-1', deletedAt: null };
+  const tx2 = { id: 'tx-cat-2', title: 'Item 2', amount: 200000, type: 'expense', categoryId: 'cat-old', accountId: 'acc-1', deletedAt: null };
+  const tx3 = { id: 'tx-cat-3', title: 'Item 3', amount: 300000, type: 'expense', categoryId: 'cat-other', accountId: 'acc-1', deletedAt: null };
+
+  store.setState({ transactions: [tx1, tx2, tx3] });
+
+  const result = transactionService.reassignBulkCategory(['tx-cat-1', 'tx-cat-2'], 'cat-new');
+  assert.strictEqual(result.success, true);
+  assert.strictEqual(result.updatedCount, 2);
+
+  const updated1 = transactionService.getById('tx-cat-1');
+  const updated2 = transactionService.getById('tx-cat-2');
+  const unaffected = transactionService.getById('tx-cat-3');
+
+  assert.strictEqual(updated1.categoryId, 'cat-new');
+  assert.strictEqual(updated2.categoryId, 'cat-new');
+  assert.strictEqual(unaffected.categoryId, 'cat-other');
+});
+
+await test('transactionService.query: ordena correctamente por categoría y fecha', async () => {
+  store.setState({
+    categories: [
+      { id: 'cat-a', name: 'Alimentación' },
+      { id: 'cat-b', name: 'Transporte' },
+      { id: 'cat-c', name: 'Vivienda' }
+    ],
+    accounts: [{ id: 'acc-1', name: 'Principal' }],
+    transactions: [
+      { id: 't1', title: 'T1', amount: 100, type: 'expense', categoryId: 'cat-b', accountId: 'acc-1', date: '2026-10-01', deletedAt: null },
+      { id: 't2', title: 'T2', amount: 200, type: 'expense', categoryId: 'cat-a', accountId: 'acc-1', date: '2026-10-02', deletedAt: null },
+      { id: 't3', title: 'T3', amount: 300, type: 'expense', categoryId: 'cat-c', accountId: 'acc-1', date: '2026-10-03', deletedAt: null }
+    ]
+  });
+
+  // Orden asc por categoría: Alimentación (t2) -> Transporte (t1) -> Vivienda (t3)
+  const resAsc = transactionService.query({ sortBy: 'category', sortOrder: 'asc' });
+  assert.deepStrictEqual(resAsc.items.map(t => t.id), ['t2', 't1', 't3']);
+
+  // Orden desc por categoría: Vivienda (t3) -> Transporte (t1) -> Alimentación (t2)
+  const resDesc = transactionService.query({ sortBy: 'category', sortOrder: 'desc' });
+  assert.deepStrictEqual(resDesc.items.map(t => t.id), ['t3', 't1', 't2']);
+});
+
 console.log(`\n-------------------------------------------------------------`);
 console.log(`✔ TODAS LAS PRUEBAS NUEVAS PASARON EXITOSAMENTE: ${passed}/${passed} verificadas.\n`);

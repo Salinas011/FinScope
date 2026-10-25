@@ -68,6 +68,60 @@ export class Toast {
   }
 
   /**
+   * Muestra un toast con botón de acción (ej. Deshacer) con temporizador automático.
+   * @param {string} message Mensaje de la notificación.
+   * @param {string} actionText Texto del botón de acción (ej. 'Deshacer').
+   * @param {Function} onAction Acción a ejecutar al pulsar el botón.
+   * @param {number} [duration=6000] Tiempo antes de expirar la acción.
+   */
+  static action(message, actionText, onAction, duration = 6000) {
+    this.init();
+
+    const node = document.createElement('div');
+    node.className = 'toast info toast-actionable';
+    node.setAttribute('role', 'status');
+    node.setAttribute('aria-live', 'polite');
+
+    const escaped = String(message).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+    const escapedBtn = String(actionText).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+
+    node.innerHTML = `
+      <span class="toast-mark"><span class="material-symbols-rounded">undo</span></span>
+      <span class="toast-text">${escaped}</span>
+      <button type="button" class="toast-action-btn undo-btn">${escapedBtn}</button>
+    `;
+
+    let timer = null;
+    const btn = node.querySelector('.toast-action-btn');
+    if (btn) {
+      btn.addEventListener('click', () => {
+        clearTimeout(timer);
+        try {
+          if (typeof onAction === 'function') onAction();
+        } finally {
+          node.style.opacity = '0';
+          node.style.transform = 'translateY(8px)';
+          setTimeout(() => node.remove(), 250);
+        }
+      });
+    }
+
+    this.container.appendChild(node);
+
+    timer = setTimeout(() => {
+      node.style.opacity = '0';
+      node.style.transform = 'translateY(8px)';
+      setTimeout(() => node.remove(), 250);
+    }, duration);
+
+    return node;
+  }
+
+  /**
    * Muestra una notificación persistente con un botón de acción accionable.
    * @param {string} message Mensaje de la notificación.
    * @param {string} actionText Texto del botón.

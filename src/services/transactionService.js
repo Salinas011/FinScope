@@ -121,7 +121,15 @@ class TransactionService {
       } else if (sortBy === 'amount') {
         comparison = Number(b.amount || 0) - Number(a.amount || 0);
       } else if (sortBy === 'title') {
-        comparison = (a.title || '').localeCompare(b.title || '');
+        comparison = (b.title || '').localeCompare(a.title || '');
+      } else if (sortBy === 'category') {
+        const catA = categoryService.getById(a.categoryId)?.name || '';
+        const catB = categoryService.getById(b.categoryId)?.name || '';
+        comparison = catB.localeCompare(catA);
+      } else if (sortBy === 'account') {
+        const accA = accountService.getById(a.accountId)?.name || '';
+        const accB = accountService.getById(b.accountId)?.name || '';
+        comparison = accB.localeCompare(accA);
       }
 
       return sortOrder === 'asc' ? -comparison : comparison;
@@ -326,6 +334,110 @@ class TransactionService {
     }
 
     return { success: true };
+  }
+
+  /**
+   * Restaura una transacción previamente eliminada (soft-delete).
+   * @param {string} id ID del movimiento a restaurar.
+   * @returns {{success: boolean, error?: string}}
+   */
+  restore(id) {
+    const all = store.transactions || [];
+    const item = all.find(t => t.id === id);
+    if (!item) {
+      return { success: false, error: 'El movimiento no existe.' };
+    }
+
+    const now = Date.now();
+    const updated = all.map(t =>
+      t.id === id ? { ...t, deletedAt: null, updatedAt: now, syncStatus: 'pending' } : t
+    );
+
+    store.setState({ transactions: updated }, 'transaction:restored');
+    const restoredItem = updated.find(t => t.id === id);
+    if (restoredItem) {
+      try {
+        firestoreService.syncRecordImmediate('transactions', restoredItem);
+      } catch (err) {
+        console.warn('[TransactionService] Sincronización inmediata diferida:', err);
+      }
+    }
+    eventBus.emit('transactions:restored', { id });
+    return { success: true };
+  }
+
+  /**
+   * Elimina en lote una lista de transacciones.
+   * @param {string[]} ids
+   * @returns {{success: boolean, count: number, deletedCount: number}}
+   */
+  deleteBulk(ids) {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return { success: false, count: 0, deletedCount: 0 };
+    }
+
+    const idSet = new Set(ids);
+    const now = Date.now();
+    const updated = (store.transactions || []).map(t =>
+      idSet.has(t.id) ? { ...t, deletedAt: now, updatedAt: now, syncStatus: 'pending' } : t
+    );
+
+    store.setState({ transactions: updated }, 'transactions:bulk_deleted');
+    const affected = updated.filter(t => idSet.has(t.id));
+    if (affected.length > 0) {
+      affected.forEach(t => {
+        try {
+          firestoreService.syncRecordImmediate('transactions', t);
+        } catch (err) {
+          console.warn('[TransactionService] Sincronización diferida:', err);
+        }
+      });
+    }
+    eventBus.emit('transactions:bulk_deleted', { ids });
+    return { success: true, count: affected.length, deletedCount: affected.length };
+  }
+
+  /**
+   * Reasigna la categoría a un conjunto de transacciones seleccionadas.
+   * @param {string[]} ids
+   * @param {string} newCategoryId
+   * @returns {{success: boolean, count: number, updatedCount: number, error?: string}}
+   */
+  reassignBulkCategory(ids, newCategoryId) {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return { success: false, count: 0, updatedCount: 0, error: 'No se seleccionaron movimientos.' };
+    }
+    if (!categoryService.getById(newCategoryId)) {
+      return { success: false, count: 0, updatedCount: 0, error: 'La categoría de destino no es válida.' };
+    }
+
+    const idSet = new Set(ids);
+    const now = Date.now();
+    const updated = (store.transactions || []).map(t =>
+      idSet.has(t.id) && !t.deletedAt ? { ...t, categoryId: newCategoryId, updatedAt: now, syncStatus: 'pending' } : t
+    );
+
+    store.setState({ transactions: updated }, 'transactions:bulk_reassigned');
+    const affected = updated.filter(t => idSet.has(t.id));
+    if (affected.length > 0) {
+      affected.forEach(t => {
+        try {
+          firestoreService.syncRecordImmediate('transactions', t);
+        } catch (err) {
+          console.warn('[TransactionService] Sincronización diferida:', err);
+        }
+      });
+    }
+    eventBus.emit('transactions:reassigned', { ids, targetCategoryId: newCategoryId });
+    return { success: true, count: affected.length, updatedCount: affected.length };
+  }
+
+  /**
+   * Obtiene todos los movimientos eliminados lógicamente (papelera).
+   * @returns {Array}
+   */
+  getDeleted() {
+    return (store.transactions || []).filter(t => t.deletedAt != null);
   }
 
   /**
