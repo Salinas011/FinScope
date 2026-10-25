@@ -52,14 +52,18 @@
         </div>
         <button class="nav-item" id="exportSidebar"><span class="nav-icon material-symbols-rounded">file_download</span>Exportar respaldo</button>
         <div id="authProfileContainer" class="auth-profile-container">
-          <div class="profile-row">
-            <div class="avatar">F</div>
-            <div>
-              <strong>Mis finanzas</strong>
-              <small>Espacio local v2</small>
+          <button type="button" class="sidebar-user-card guest-card" id="btnSidebarLogin" aria-label="Iniciar sesión con Google">
+            <div class="sidebar-user-avatar guest">
+              <span class="material-symbols-rounded" style="font-size: 18px;">login</span>
             </div>
-            <span class="online-dot" id="syncStatusDot" title="Almacenamiento local activo"></span>
-          </div>
+            <div class="sidebar-user-meta">
+              <strong>Iniciar sesión</strong>
+              <small><span class="online-dot" id="syncStatusDot" title="Almacenamiento local activo"></span> Modo local activo</small>
+            </div>
+            <div class="sidebar-user-actions">
+              <span class="material-symbols-rounded" style="font-size: 18px; color: var(--muted);">arrow_forward</span>
+            </div>
+          </button>
         </div>
       </div>
     </aside>

@@ -543,6 +543,142 @@ button:disabled {
   font-size: 16px;
 }
 
+/* Componente Interactivo de Perfil en Sidebar */
+.sidebar-user-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--line);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.sidebar-user-card:hover {
+  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+  border-color: var(--line-strong, rgba(255, 255, 255, 0.16));
+}
+
+.sidebar-user-card.guest-card {
+  border-style: dashed;
+  text-decoration: none;
+}
+
+.sidebar-user-card.guest-card:hover {
+  border-style: solid;
+  border-color: var(--accent, #6366f1);
+  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.18);
+}
+
+.sidebar-user-clickable {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+}
+
+.sidebar-user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  font-weight: 700;
+  font-size: 13px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.sidebar-user-avatar.guest {
+  color: var(--accent, #6366f1);
+  background: rgba(99, 102, 241, 0.12);
+  border-color: rgba(99, 102, 241, 0.25);
+}
+
+.sidebar-user-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-user-meta strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-user-meta small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
+.sidebar-user-meta .online-dot {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.sidebar-user-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.sidebar-action-btn {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.sidebar-action-btn:hover {
+  background: var(--surface-3, rgba(255, 255, 255, 0.1));
+  color: var(--text);
+  border-color: var(--line);
+}
+
+.sidebar-action-btn.logout:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.sidebar-action-btn .material-symbols-rounded {
+  font-size: 16px;
+}
+
 .login-wrapper {
   display: flex;
   flex-direction: column;

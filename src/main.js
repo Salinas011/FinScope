@@ -368,33 +368,73 @@ class App {
     if (sidebarContainer) {
       if (!user) {
         sidebarContainer.innerHTML = `
-          <div class="login-wrapper">
-            <div id="googleBtnContainer"></div>
-            <span class="login-hint">Inicia sesión con Google</span>
-          </div>
-        `;
-      } else {
-        sidebarContainer.innerHTML = `
-          <div class="profile-row user-logged">
-            <img 
-              class="avatar-img" 
-              src="${user.picture || ''}" 
-              alt="${user.name || 'Usuario'}" 
-              referrerpolicy="no-referrer"
-              onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='grid';" 
-            />
-            <div class="avatar" style="display: none;">${firstLetter}</div>
-            <div class="user-meta">
-              <strong title="${user.name}">${user.name}</strong>
-              <small title="${user.email}">${user.email}</small>
+          <button type="button" class="sidebar-user-card guest-card" id="btnSidebarLogin" aria-label="Iniciar sesión con Google" title="Iniciar sesión con Google">
+            <div class="sidebar-user-avatar guest">
+              <span class="material-symbols-rounded" style="font-size: 18px;">login</span>
             </div>
-            <button class="logout-btn" id="btnLogoutGoogle" title="Cerrar sesión" aria-label="Cerrar sesión de Google">
-              <span class="material-symbols-rounded">logout</span>
-            </button>
+            <div class="sidebar-user-meta">
+              <strong>Iniciar sesión</strong>
+              <small><span class="online-dot" id="syncStatusDot" title="Almacenamiento local activo"></span> Modo local activo</small>
+            </div>
+            <div class="sidebar-user-actions">
+              <span class="material-symbols-rounded" style="font-size: 18px; color: var(--muted);">arrow_forward</span>
+            </div>
+          </button>
+        `;
+
+        document.getElementById('btnSidebarLogin')?.addEventListener('click', () => {
+          Modal.open('#userProfileModal');
+          setTimeout(() => {
+            authService.initGoogleAuth(['googleBtnModal', 'googleBtnSettings']);
+            authService.promptGoogleLogin();
+          }, 80);
+        });
+      } else {
+        const safeName = (user.name || 'Usuario').replace(/[&<>"']/g, c => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+        const safeEmail = (user.email || '').replace(/[&<>"']/g, c => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+
+        sidebarContainer.innerHTML = `
+          <div class="sidebar-user-card logged-card">
+            <div class="sidebar-user-clickable" id="btnSidebarUserProfile" role="button" tabindex="0" title="Ver perfil y estado de sincronización" aria-label="Ver perfil de ${safeName}">
+              <img 
+                class="avatar-img" 
+                src="${user.picture || ''}" 
+                alt="${safeName}" 
+                referrerpolicy="no-referrer"
+                onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='grid';" 
+              />
+              <div class="avatar" style="display: none;">${firstLetter}</div>
+              <div class="sidebar-user-meta">
+                <strong title="${safeName}">${safeName}</strong>
+                <small title="${safeEmail}"><span class="online-dot synced" id="syncStatusDot" title="Sincronizado con Firebase Firestore"></span> Sincronizado</small>
+              </div>
+            </div>
+            <div class="sidebar-user-actions">
+              <button type="button" class="sidebar-action-btn" data-goto="settings" title="Ir a Configuración" aria-label="Ir a Configuración">
+                <span class="material-symbols-rounded" style="font-size: 16px;">settings</span>
+              </button>
+              <button type="button" class="sidebar-action-btn logout" id="btnLogoutSidebar" title="Cerrar sesión" aria-label="Cerrar sesión">
+                <span class="material-symbols-rounded" style="font-size: 16px;">logout</span>
+              </button>
+            </div>
           </div>
         `;
 
-        document.getElementById('btnLogoutGoogle')?.addEventListener('click', async () => {
+        document.getElementById('btnSidebarUserProfile')?.addEventListener('click', () => {
+          Modal.open('#userProfileModal');
+        });
+        document.getElementById('btnSidebarUserProfile')?.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            Modal.open('#userProfileModal');
+          }
+        });
+
+        document.getElementById('btnLogoutSidebar')?.addEventListener('click', async () => {
           await authService.signOut();
           this.renderAll();
           Toast.info('Has cerrado sesión. Base local eliminada y Modo Invitado activado.');
