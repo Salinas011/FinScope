@@ -528,7 +528,31 @@
 
         <div class="settings-grid">
           <!-- Tarjeta Cuenta y Sincronización en la Nube -->
-          <article class="settings-card" id="settingsAuthCard"></article>
+          <article class="settings-card" id="settingsAuthCard">
+            <div class="settings-card-head">
+              <span class="settings-card-icon"><span class="material-symbols-rounded">cloud_sync</span></span>
+              <div>
+                <h3>Cuenta y Sincronización en la Nube</h3>
+                <p class="muted">Modo local / Seguro en este dispositivo</p>
+              </div>
+            </div>
+            <div class="settings-card-body">
+              <div class="settings-auth-status" style="margin-bottom: 12px;">
+                <span class="status-indicator-badge local" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 20px; background: var(--surface-2, rgba(255,255,255,0.06)); border: 1px solid var(--line, rgba(255,255,255,0.1)); color: var(--text, #fff);">
+                  <span class="material-symbols-rounded" style="font-size: 16px; color: var(--accent, #6366f1);">lock</span> Modo local / Seguro en este dispositivo
+                </span>
+              </div>
+              <p class="settings-help" style="margin-top: 0; margin-bottom: 14px;">
+                Actualmente estás usando FinScope en modo local en este dispositivo. Para sincronizar tus cuentas y movimientos en tiempo real con Cloud Firestore y acceder desde cualquier lugar, inicia sesión con Google:
+              </p>
+              <div class="settings-action-row" style="margin-top: 14px; align-items: center; gap: 12px; min-height: 44px;">
+                <div id="googleBtnSettings" class="google-btn-wrapper"></div>
+                <button type="button" class="primary-button" id="btnGoogleFallbackSettings" style="display: none;">
+                  <span class="material-symbols-rounded">login</span> Iniciar sesión con Google
+                </button>
+              </div>
+            </div>
+          </article>
 
           <!-- Tarjeta Moneda -->
           <article class="settings-card">

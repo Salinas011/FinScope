@@ -108,19 +108,29 @@ class AuthService {
       }
 
       ids.forEach(id => {
-        const container = document.getElementById(id);
-        if (container && !this.isAuthenticated()) {
-          container.innerHTML = '';
-          const isModal = id === 'googleBtnModal';
-          window.google.accounts.id.renderButton(container, {
-            type: 'standard',
-            shape: 'rectangular',
-            theme: document.body.classList.contains('dark') ? 'filled_black' : 'outline',
-            text: 'signin_with',
-            size: isModal ? 'large' : 'medium',
-            logo_alignment: 'left',
-            width: isModal ? Math.min(280, window.innerWidth - 60) : Math.min(240, window.innerWidth - 60)
-          });
+        try {
+          const container = document.getElementById(id);
+          if (container && !this.isAuthenticated()) {
+            container.innerHTML = '';
+            const isModal = id === 'googleBtnModal';
+            window.google.accounts.id.renderButton(container, {
+              type: 'standard',
+              shape: 'rectangular',
+              theme: document.body.classList.contains('dark') ? 'filled_black' : 'outline',
+              text: 'signin_with',
+              size: isModal ? 'large' : 'medium',
+              logo_alignment: 'left',
+              width: isModal ? Math.min(280, Math.max(200, window.innerWidth - 60)) : Math.min(240, Math.max(200, window.innerWidth - 60))
+            });
+
+            // Si se renderizó con éxito en Configuración, ocultar botón fallback
+            if (id === 'googleBtnSettings') {
+              const fallbackBtn = document.getElementById('btnGoogleFallbackSettings');
+              if (fallbackBtn) fallbackBtn.style.display = 'none';
+            }
+          }
+        } catch (elError) {
+          console.warn(`[AuthService] No se pudo renderizar botón Google en #${id}:`, elError);
         }
       });
     } catch (error) {
@@ -138,6 +148,9 @@ class AuthService {
       } catch (e) {
         console.warn('Error al invocar prompt de Google:', e);
       }
+    } else {
+      console.info('[AuthService] Esperando carga de Google Identity Services...');
+      this.initGoogleAuth(['googleBtnContainer', 'googleBtnModal', 'googleBtnSettings']);
     }
   }
 

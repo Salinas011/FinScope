@@ -349,58 +349,18 @@ class App {
 
     // 3. Tarjeta en la Vista de Ajustes / Configuración
     if (settingsAuthCard) {
-      if (!user) {
-        settingsAuthCard.innerHTML = `
-          <div class="settings-card-head">
-            <span class="settings-card-icon"><span class="material-symbols-rounded">account_circle</span></span>
-            <div>
-              <h3>Cuenta y Sesión en la Nube</h3>
-              <p class="muted">Modo Invitado (Almacenamiento Local Privado)</p>
-            </div>
-          </div>
-          <div class="settings-card-body">
-            <p class="settings-help">Actualmente estás usando FinScope en modo local en este dispositivo. Para sincronizar tus cuentas y movimientos en tiempo real con la nube, inicia sesión con Google:</p>
-            <div class="settings-action-row" style="margin-top: 14px;">
-              <div id="googleBtnSettings"></div>
-            </div>
-          </div>
-        `;
-      } else {
-        settingsAuthCard.innerHTML = `
-          <div class="settings-card-head">
-            <span class="settings-card-icon"><span class="material-symbols-rounded">verified_user</span></span>
-            <div>
-              <h3>Cuenta Google Activa</h3>
-              <p class="muted">${user.email}</p>
-            </div>
-          </div>
-          <div class="settings-card-body">
-            <div class="profile-row user-logged" style="padding: 0; background: transparent; border: none; margin-bottom: 12px;">
-              <img 
-                class="avatar-img" 
-                src="${user.picture || ''}" 
-                alt="${user.name || 'Usuario'}" 
-                referrerpolicy="no-referrer"
-                onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='grid';" 
-              />
-              <div class="avatar" style="display: none;">${firstLetter}</div>
-              <div class="user-meta">
-                <strong>${user.name}</strong>
-                <small title="${user.email}">${user.email}</small>
-              </div>
-            </div>
-            <p class="settings-help">Tus datos se sincronizan automáticamente con Firebase Firestore cuando tienes conexión a internet.</p>
-            <div class="settings-action-row" style="margin-top: 14px;">
-              <button class="danger-button" id="btnLogoutSettings"><span class="material-symbols-rounded">logout</span> Cerrar sesión</button>
-            </div>
-          </div>
-        `;
-
-        document.getElementById('btnLogoutSettings')?.addEventListener('click', async () => {
-          await authService.signOut();
-          this.renderAll();
-          Toast.info('Has cerrado sesión. Base local eliminada y Modo Invitado activado.');
-        });
+      try {
+        if (loadedViews.settings?.renderAuthCard) {
+          loadedViews.settings.renderAuthCard(user);
+        } else {
+          import('./ui/views/settingsView.js').then(m => {
+            m.SettingsView.renderAuthCard(user);
+          }).catch(err => {
+            console.warn('[main.js] Fallback al cargar SettingsView dinámicamente:', err);
+          });
+        }
+      } catch (err) {
+        console.error('[main.js] Error al actualizar settingsAuthCard:', err);
       }
     }
 
